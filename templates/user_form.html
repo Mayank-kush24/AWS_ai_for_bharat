@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}{% if user %}Edit User{% else %}Create User{% endif %} - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1><i class="fas fa-user-{% if user %}edit{% else %}plus{% endif %}"></i> {% if user %}Edit User{% else %}Create New User{% endif %}</h1>
+        <a href="{{ url_for('users_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Users
+        </a>
+    </div>
+
+    <form method="POST" class="form">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="email">Email <span class="required">*</span></label>
+                <input type="email" id="email" name="email" value="{{ user.email if user else '' }}" 
+                       {% if user %}readonly{% else %}required{% endif %} class="form-control">
+                {% if user %}<small class="form-text">Email cannot be changed</small>{% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="name">Name <span class="required">*</span></label>
+                <input type="text" id="name" name="name" value="{{ user.name if user else '' }}" required class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="phone_number">Phone Number</label>
+                <input type="tel" id="phone_number" name="phone_number" value="{{ user.phone_number if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="gender">Gender</label>
+                <select id="gender" name="gender" class="form-control">
+                    <option value="">Select Gender</option>
+                    <option value="Male" {% if user and user.gender == 'Male' %}selected{% endif %}>Male</option>
+                    <option value="Female" {% if user and user.gender == 'Female' %}selected{% endif %}>Female</option>
+                    <option value="Other" {% if user and user.gender == 'Other' %}selected{% endif %}>Other</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="country">Country</label>
+                <input type="text" id="country" name="country" value="{{ user.country if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="state">State</label>
+                <input type="text" id="state" name="state" value="{{ user.state if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="city">City</label>
+                <input type="text" id="city" name="city" value="{{ user.city if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="date_of_birth">Date of Birth</label>
+                <input type="date" id="date_of_birth" name="date_of_birth" 
+                       value="{{ user.date_of_birth if user and user.date_of_birth else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="designation">Designation</label>
+                <input type="text" id="designation" name="designation" value="{{ user.designation if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="class_stream">Class/Stream</label>
+                <input type="text" id="class_stream" name="class_stream" value="{{ user.class_stream if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="degree_passout_year">Degree Passout Year</label>
+                <input type="number" id="degree_passout_year" name="degree_passout_year" 
+                       value="{{ user.degree_passout_year if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="occupation">Occupation</label>
+                <input type="text" id="occupation" name="occupation" value="{{ user.occupation if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label for="linkedin">LinkedIn</label>
+                <input type="url" id="linkedin" name="linkedin" value="{{ user.linkedin if user else '' }}" class="form-control">
+            </div>
+
+            <div class="form-group form-group-checkbox">
+                <label>
+                    <input type="checkbox" name="participated_in_academy_1_0" 
+                           {% if user and user.participated_in_academy_1_0 %}checked{% endif %}>
+                    Participated in Academy 1.0
+                </label>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> {% if user %}Update User{% else %}Create User{% endif %}
+            </button>
+            <a href="{{ url_for('users_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

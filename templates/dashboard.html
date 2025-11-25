@@ -1,0 +1,1067 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="page-header">
+        <h1><i class="fas fa-chart-line"></i> Dashboard</h1>
+        <p class="subtitle">Interactive analytics and demographic insights</p>
+    </div>
+
+    <!-- Key Statistics -->
+    <div class="stats-grid">
+        <div class="stat-card stat-primary">
+            <div class="stat-icon">
+                <i class="fas fa-user-plus"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.get('total_registration', 0) }}</h3>
+                <p>Total Registration</p>
+            </div>
+        </div>
+
+        <div class="stat-card stat-success">
+            <div class="stat-icon">
+                <i class="fas fa-file-alt"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.get('total_form_submission', 0) }}</h3>
+                <p>Total Form Submission</p>
+            </div>
+        </div>
+
+        <div class="stat-card stat-info">
+            <div class="stat-icon">
+                <i class="fas fa-blog"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.get('total_blog_submission', 0) }}</h3>
+                <p>Total Blog Submission</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export to Google Sheet Button -->
+    <div class="export-section" style="margin-bottom: 2rem;">
+        <button id="exportToSheetBtn" class="btn btn-primary btn-lg" style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="fas fa-file-excel"></i>
+            <span>Export to Google Sheet</span>
+        </button>
+        <div id="exportStatus" style="margin-top: 0.5rem; display: none;"></div>
+    </div>
+
+    <!-- Workshop Occupation Breakdown Section -->
+    <div class="dashboard-section">
+        <div class="section-header">
+            <h2><i class="fas fa-briefcase"></i> Workshop Occupation Breakdown</h2>
+            <div class="loading-indicator" id="occupationBreakdownLoading" style="display: none;">
+                <i class="fas fa-spinner fa-spin"></i> Loading breakdown...
+            </div>
+        </div>
+        
+        <!-- Workshop Tabs -->
+        <div class="workshop-tabs" style="margin-bottom: 1.5rem;">
+            <button class="workshop-tab active" data-workshop="all" onclick="filterWorkshopBreakdown('all')">
+                <i class="fas fa-th"></i> All Workshops
+            </button>
+            {% for i in range(1, 7) %}
+            <button class="workshop-tab" data-workshop="{{ i }}" onclick="filterWorkshopBreakdown({{ i }})">
+                <i class="fas fa-graduation-cap"></i> Workshop {{ i }}
+            </button>
+            {% endfor %}
+        </div>
+        
+        <div id="workshopOccupationBreakdown" class="workshop-breakdown-container">
+            <div class="text-center text-muted" style="padding: 2rem;">
+                <i class="fas fa-spinner fa-spin"></i> Loading occupation breakdown...
+            </div>
+        </div>
+    </div>
+
+    <!-- Demographic Charts Section -->
+    <div class="dashboard-section">
+        <div class="section-header">
+            <h2><i class="fas fa-chart-bar"></i> Demographic Analytics</h2>
+            <div class="loading-indicator" id="chartsLoading" style="display: none;">
+                <i class="fas fa-spinner fa-spin"></i> Loading charts...
+            </div>
+        </div>
+
+        <div class="charts-grid" id="chartsGrid">
+            <!-- Gender Distribution -->
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3><i class="fas fa-venus-mars"></i> Gender Distribution</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="genderChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Age Distribution -->
+            <div class="chart-card">
+                <div class="chart-header">
+                    <h3><i class="fas fa-birthday-cake"></i> Age Distribution</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="ageChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Occupation Distribution -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-briefcase"></i> Occupation Distribution (Top 20)</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="occupationChart"></canvas>
+                </div>
+            </div>
+
+            <!-- State Distribution Table -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-map-marked-alt"></i> State Distribution</h3>
+                </div>
+                <div class="chart-container">
+                    <div class="table-responsive">
+                        <table class="data-table" id="stateTable">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>State</th>
+                                    <th>Participants</th>
+                                    <th>Percentage</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stateTableBody">
+                                <tr>
+                                    <td colspan="4" class="text-center">Loading state data...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- State Map Visualization -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-map"></i> State Distribution Map</h3>
+                </div>
+                <div class="state-map-container" id="stateMapContainer" style="height: 600px;">
+                    <!-- India map will be rendered here -->
+                </div>
+            </div>
+
+            <!-- City Distribution -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-city"></i> Top Cities (Top 20)</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="cityChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Workshop Bookings -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-chalkboard-teacher"></i> Workshop Slot Bookings</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="workshopChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Time Slot Distribution -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-clock"></i> Time Slot Distribution (Top 15)</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="timeSlotChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Designation Distribution -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-user-tie"></i> Designation Distribution (Top 15)</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="designationChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Registration Trend -->
+            <div class="chart-card chart-full-width">
+                <div class="chart-header">
+                    <h3><i class="fas fa-chart-line"></i> Registration Trend (Last 60 Days)</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="registrationChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- Leaflet.js for India Map -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Verify Chart.js loaded
+window.addEventListener('load', function() {
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js failed to load!');
+        const errorMsg = document.createElement('div');
+        errorMsg.style.cssText = 'background: #FEE2E2; border: 2px solid #EF4444; padding: 1rem; margin: 1rem; border-radius: 0.5rem; color: #DC2626;';
+        errorMsg.innerHTML = '<strong>Error:</strong> Chart.js library failed to load. Please check your internet connection and refresh the page.';
+        document.querySelector('.dashboard').insertBefore(errorMsg, document.querySelector('.dashboard').firstChild);
+    } else {
+        console.log('Chart.js loaded successfully');
+    }
+});
+</script>
+
+<script>
+let charts = {};
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load demographic data and create charts
+async function loadDemographics() {
+    const loadingIndicator = document.getElementById('chartsLoading');
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+    }
+    
+    const breakdownLoading = document.getElementById('occupationBreakdownLoading');
+    if (breakdownLoading) {
+        breakdownLoading.style.display = 'block';
+    }
+    
+    try {
+        console.log('Fetching demographic data...');
+        const response = await fetch('/api/dashboard/demographics');
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText.substring(0, 200)}`);
+        }
+        
+        const data = await response.json();
+        console.log('Demographic data received:', data);
+        console.log('Data keys:', Object.keys(data));
+        console.log('Gender data:', data.gender);
+        console.log('Age data:', data.age);
+        
+        if (data.success) {
+            createCharts(data);
+        } else {
+            console.error('Error loading demographics:', data.error);
+            showError('Failed to load demographic data: ' + (data.error || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error fetching demographics:', error);
+        console.error('Error stack:', error.stack);
+        showError('Error loading dashboard data: ' + error.message);
+    } finally {
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+        const breakdownLoading = document.getElementById('occupationBreakdownLoading');
+        if (breakdownLoading) {
+            breakdownLoading.style.display = 'none';
+        }
+    }
+}
+
+function showError(message) {
+    const chartsGrid = document.querySelector('.charts-grid');
+    if (chartsGrid) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'chart-card chart-full-width';
+        errorDiv.style.background = '#FEE2E2';
+        errorDiv.style.border = '1px solid #EF4444';
+        errorDiv.style.padding = '2rem';
+        errorDiv.style.textAlign = 'center';
+        errorDiv.innerHTML = `
+            <i class="fas fa-exclamation-triangle" style="color: #EF4444; font-size: 2rem; margin-bottom: 1rem;"></i>
+            <p style="color: #DC2626; font-weight: 500;">${escapeHtml(message)}</p>
+        `;
+        chartsGrid.insertBefore(errorDiv, chartsGrid.firstChild);
+    }
+}
+
+function createCharts(data) {
+    console.log('Creating charts with data:', data);
+    
+    // Check if Chart.js is loaded
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not loaded!');
+        showError('Chart.js library failed to load. Please refresh the page.');
+        return;
+    }
+    
+    // Gender Distribution (Pie Chart)
+    const genderCtx = document.getElementById('genderChart');
+    if (genderCtx) {
+        if (data.gender && Object.keys(data.gender).length > 0) {
+            const genderLabels = Object.keys(data.gender);
+            const genderValues = Object.values(data.gender);
+            
+            // Map colors based on gender: Blue for Male, Red for Female, Yellow for Others
+            const genderColors = genderLabels.map(label => {
+                const labelUpper = label.toUpperCase();
+                if (labelUpper.includes('MALE') && !labelUpper.includes('FE')) {
+                    return '#3B82F6'; // Blue for Male
+                } else if (labelUpper.includes('FEMALE') || labelUpper.includes('FEM')) {
+                    return '#EF4444'; // Red for Female
+                } else {
+                    return '#FCD34D'; // Yellow for Others/Undisclosed
+                }
+            });
+            
+            charts.gender = new Chart(genderCtx.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: genderLabels,
+                    datasets: [{
+                        data: genderValues,
+                        backgroundColor: genderColors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        } else {
+            genderCtx.parentElement.innerHTML = '<div class="no-data-message">No gender data available</div>';
+        }
+    }
+
+    // Age Distribution (Bar Chart)
+    const ageCtx = document.getElementById('ageChart');
+    if (ageCtx) {
+        if (data.age && Object.keys(data.age).length > 0) {
+            charts.age = new Chart(ageCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(data.age),
+                    datasets: [{
+                        label: 'Participants',
+                        data: Object.values(data.age),
+                        backgroundColor: '#3B82F6'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } else {
+            ageCtx.parentElement.innerHTML = '<div class="no-data-message">No age data available</div>';
+        }
+    }
+
+    // Occupation Distribution (Horizontal Bar Chart)
+    const occCtx = document.getElementById('occupationChart');
+    if (occCtx) {
+        if (data.occupation && Object.keys(data.occupation).length > 0) {
+            const occLabels = Object.keys(data.occupation);
+            const occValues = Object.values(data.occupation);
+            charts.occupation = new Chart(occCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: occLabels,
+                    datasets: [{
+                        label: 'Count',
+                        data: occValues,
+                        backgroundColor: '#10B981'
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } else {
+            occCtx.parentElement.innerHTML = '<div class="no-data-message">No occupation data available</div>';
+        }
+    }
+
+    // State Distribution (Table)
+    const stateTableBody = document.getElementById('stateTableBody');
+    if (stateTableBody) {
+        if (data.state && Object.keys(data.state).length > 0) {
+            const stateEntries = Object.entries(data.state)
+                .sort((a, b) => b[1] - a[1]); // Sort by count descending
+            
+            const totalParticipants = stateEntries.reduce((sum, [, count]) => sum + count, 0);
+            
+            let tableHTML = '';
+            stateEntries.forEach(([state, count], index) => {
+                const percentage = ((count / totalParticipants) * 100).toFixed(2);
+                tableHTML += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td><strong>${escapeHtml(state)}</strong></td>
+                        <td>${count.toLocaleString()}</td>
+                        <td>${percentage}%</td>
+                    </tr>
+                `;
+            });
+            stateTableBody.innerHTML = tableHTML;
+        } else {
+            stateTableBody.innerHTML = '<tr><td colspan="4" class="text-center">No state data available</td></tr>';
+        }
+    }
+
+    // City Distribution (Bar Chart)
+    const cityCtx = document.getElementById('cityChart');
+    if (cityCtx) {
+        if (data.city && Object.keys(data.city).length > 0) {
+            const cityLabels = Object.keys(data.city);
+            const cityValues = Object.values(data.city);
+            charts.city = new Chart(cityCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: cityLabels,
+                    datasets: [{
+                        label: 'Participants',
+                        data: cityValues,
+                        backgroundColor: '#8B5CF6'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            cityCtx.parentElement.innerHTML = '<div class="no-data-message">No city data available</div>';
+        }
+    }
+
+    // Workshop Bookings (Bar Chart)
+    const workshopCtx = document.getElementById('workshopChart');
+    if (workshopCtx) {
+        if (data.workshop_bookings && Object.keys(data.workshop_bookings).length > 0) {
+            charts.workshop = new Chart(workshopCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(data.workshop_bookings),
+                    datasets: [{
+                        label: 'Bookings',
+                        data: Object.values(data.workshop_bookings),
+                        backgroundColor: '#EC4899'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } else {
+            workshopCtx.parentElement.innerHTML = '<div class="no-data-message">No workshop booking data available</div>';
+        }
+    }
+
+    // Time Slot Distribution (Bar Chart)
+    const timeSlotCtx = document.getElementById('timeSlotChart');
+    if (timeSlotCtx) {
+        if (data.time_slots && Object.keys(data.time_slots).length > 0) {
+            const timeSlotLabels = Object.keys(data.time_slots);
+            const timeSlotValues = Object.values(data.time_slots);
+            charts.timeSlot = new Chart(timeSlotCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: timeSlotLabels,
+                    datasets: [{
+                        label: 'Bookings',
+                        data: timeSlotValues,
+                        backgroundColor: '#06B6D4'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            timeSlotCtx.parentElement.innerHTML = '<div class="no-data-message">No time slot data available</div>';
+        }
+    }
+
+    // Designation Distribution (Bar Chart)
+    const desigCtx = document.getElementById('designationChart');
+    if (desigCtx) {
+        if (data.designation && Object.keys(data.designation).length > 0) {
+            const desigLabels = Object.keys(data.designation);
+            const desigValues = Object.values(data.designation);
+            charts.designation = new Chart(desigCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: desigLabels,
+                    datasets: [{
+                        label: 'Count',
+                        data: desigValues,
+                        backgroundColor: '#6366F1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            desigCtx.parentElement.innerHTML = '<div class="no-data-message">No designation data available</div>';
+        }
+    }
+
+    // Registration Trend (Line Chart)
+    const regCtx = document.getElementById('registrationChart');
+    if (regCtx) {
+        if (data.registration_trend && Object.keys(data.registration_trend).length > 0) {
+            // Sort dates chronologically
+            const sortedEntries = Object.entries(data.registration_trend).sort((a, b) => {
+                return a[0].localeCompare(b[0]);
+            });
+            
+            // Format dates for display (e.g., "2025-11-25" -> "Nov 25")
+            const regLabels = sortedEntries.map(([date]) => {
+                try {
+                    const d = new Date(date + 'T00:00:00');
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    return `${monthNames[d.getMonth()]} ${d.getDate()}`;
+                } catch (e) {
+                    return date;
+                }
+            });
+            const regValues = sortedEntries.map(([, count]) => count);
+            
+            // Store sorted entries for tooltip access
+            const registrationTrendData = sortedEntries;
+            
+            charts.registration = new Chart(regCtx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: regLabels,
+                    datasets: [{
+                        label: 'Registrations',
+                        data: regValues,
+                        borderColor: '#3B82F6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    // Show full date in tooltip
+                                    const index = context[0].dataIndex;
+                                    if (registrationTrendData && registrationTrendData[index]) {
+                                        return registrationTrendData[index][0];
+                                    }
+                                    return regLabels[index] || '';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45,
+                                maxTicksLimit: 30 // Limit number of labels to avoid crowding
+                            }
+                        }
+                    }
+                }
+            });
+        } else {
+            regCtx.parentElement.innerHTML = '<div class="no-data-message">No registration trend data available</div>';
+        }
+    }
+
+    // State Map Visualization
+    if (data.state && Object.keys(data.state).length > 0) {
+        createStateMap(data.state);
+    }
+
+    // Workshop Occupation Breakdown
+    const breakdownLoading = document.getElementById('occupationBreakdownLoading');
+    if (breakdownLoading) {
+        breakdownLoading.style.display = 'none';
+    }
+    
+    if (data.workshop_occupation_breakdown && data.workshop_occupation_breakdown.length > 0) {
+        renderWorkshopOccupationBreakdown(data.workshop_occupation_breakdown, currentWorkshopFilter);
+    } else {
+        const container = document.getElementById('workshopOccupationBreakdown');
+        if (container) {
+            container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">No workshop occupation data available</div>';
+        }
+    }
+}
+
+// Store full breakdown data for filtering
+let fullWorkshopBreakdownData = null;
+let currentWorkshopFilter = 'all';
+
+// Render Workshop Occupation Breakdown
+function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
+    const container = document.getElementById('workshopOccupationBreakdown');
+    if (!container) return;
+    
+    // Store full data for filtering
+    fullWorkshopBreakdownData = data;
+    currentWorkshopFilter = filterWorkshop;
+    
+    // Filter data by workshop if needed
+    let filteredData = data;
+    if (filterWorkshop !== 'all') {
+        const workshopName = `Workshop ${filterWorkshop}`;
+        filteredData = data.filter(item => {
+            const workshop = item.workshop || 'Unknown Workshop';
+            return workshop === workshopName;
+        });
+    }
+    
+    // Group data by workshop and time slot
+    const grouped = {};
+    filteredData.forEach(item => {
+        const workshop = item.workshop || 'Unknown Workshop';
+        const timeSlot = item.time_slot || 'No Time Slot';
+        
+        if (!grouped[workshop]) {
+            grouped[workshop] = {};
+        }
+        if (!grouped[workshop][timeSlot]) {
+            grouped[workshop][timeSlot] = {};
+        }
+        grouped[workshop][timeSlot][item.occupation] = item.count;
+    });
+    
+    if (Object.keys(grouped).length === 0) {
+        container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">No workshop occupation data available for the selected filter</div>';
+        return;
+    }
+    
+    // Build HTML for each workshop
+    let html = '';
+    Object.keys(grouped).sort().forEach(workshop => {
+        const timeSlots = grouped[workshop];
+        html += `
+            <div class="workshop-breakdown-card">
+                <div class="workshop-breakdown-header">
+                    <h3><i class="fas fa-graduation-cap"></i> ${escapeHtml(workshop)}</h3>
+                    <span class="badge badge-info">${Object.keys(timeSlots).length} Time Slot${Object.keys(timeSlots).length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="workshop-time-slots">
+        `;
+        
+        // Sort time slots by date if possible
+        const sortedTimeSlots = Object.entries(timeSlots).sort((a, b) => {
+            // Try to parse dates for sorting
+            try {
+                const dateA = new Date(a[0]);
+                const dateB = new Date(b[0]);
+                if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+                    return dateA - dateB;
+                }
+            } catch (e) {
+                // If parsing fails, try to extract date from format like "25 Nov, 4:00 - 7:00 PM"
+                try {
+                    const matchA = a[0].match(/(\d+)\s+(\w+)/);
+                    const matchB = b[0].match(/(\d+)\s+(\w+)/);
+                    if (matchA && matchB) {
+                        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        const monthA = monthNames.indexOf(matchA[2]);
+                        const monthB = monthNames.indexOf(matchB[2]);
+                        if (monthA !== -1 && monthB !== -1) {
+                            if (monthA !== monthB) return monthA - monthB;
+                            return parseInt(matchA[1]) - parseInt(matchB[1]);
+                        }
+                    }
+                } catch (e2) {
+                    // If all parsing fails, sort alphabetically
+                }
+            }
+            return a[0].localeCompare(b[0]);
+        });
+        
+        sortedTimeSlots.forEach(([timeSlot, occupations]) => {
+            const totalCount = Object.values(occupations).reduce((sum, count) => sum + count, 0);
+            const sortedOccupations = Object.entries(occupations)
+                .sort((a, b) => b[1] - a[1]); // Sort by count descending
+            
+            html += `
+                <div class="time-slot-breakdown-card">
+                    <div class="time-slot-breakdown-header">
+                        <div>
+                            <i class="fas fa-clock"></i>
+                            <strong>${escapeHtml(timeSlot)}</strong>
+                        </div>
+                        <span class="badge badge-primary">${totalCount} responses</span>
+                    </div>
+                    <div class="occupation-breakdown">
+                        <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
+                        <div class="occupation-list">
+                            ${sortedOccupations.map(([occupation, count]) => `
+                                <div class="occupation-item">
+                                    <span class="occupation-name">${escapeHtml(occupation)}</span>
+                                    <span class="occupation-count">${count}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+// Filter workshop breakdown by workshop number
+function filterWorkshopBreakdown(workshopNum) {
+    // Update active tab
+    document.querySelectorAll('.workshop-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelector(`[data-workshop="${workshopNum}"]`).classList.add('active');
+    
+    // Re-render with filter
+    if (fullWorkshopBreakdownData) {
+        renderWorkshopOccupationBreakdown(fullWorkshopBreakdownData, workshopNum);
+    }
+}
+
+// India state coordinates (approximate center points)
+const INDIA_STATE_COORDINATES = {
+    'Andhra Pradesh': [15.9129, 79.7400],
+    'Arunachal Pradesh': [28.2180, 94.7278],
+    'Assam': [26.2006, 92.9376],
+    'Bihar': [25.0961, 85.3131],
+    'Chhattisgarh': [21.2787, 81.8661],
+    'Goa': [15.2993, 74.1240],
+    'Gujarat': [23.0225, 72.5714],
+    'Haryana': [29.0588, 76.0856],
+    'Himachal Pradesh': [31.1048, 77.1734],
+    'Jammu and Kashmir': [34.0837, 74.7973],
+    'Jharkhand': [23.6102, 85.2799],
+    'Karnataka': [15.3173, 75.7139],
+    'Kerala': [10.8505, 76.2711],
+    'Madhya Pradesh': [22.9734, 78.6569],
+    'Maharashtra': [19.7515, 75.7139],
+    'Manipur': [24.6637, 93.9063],
+    'Meghalaya': [25.4670, 91.3662],
+    'Mizoram': [23.1645, 92.9376],
+    'Nagaland': [26.1584, 94.5624],
+    'Odisha': [20.9517, 85.0985],
+    'Punjab': [31.1471, 75.3412],
+    'Rajasthan': [27.0238, 74.2179],
+    'Sikkim': [27.5330, 88.5122],
+    'Tamil Nadu': [11.1271, 78.6569],
+    'Telangana': [18.1124, 79.0193],
+    'Tripura': [23.9408, 91.9882],
+    'Uttar Pradesh': [26.8467, 80.9462],
+    'Uttarakhand': [30.0668, 79.0193],
+    'West Bengal': [22.9868, 87.8550],
+    'Delhi': [28.6139, 77.2090],
+    'Puducherry': [11.9416, 79.8083],
+    'Andaman and Nicobar Islands': [11.7401, 92.6586],
+    'Chandigarh': [30.7333, 76.7794],
+    'Dadra and Nagar Haveli': [20.1809, 73.0169],
+    'Daman and Diu': [20.4283, 72.8397],
+    'Lakshadweep': [10.5667, 72.6417]
+};
+
+function createStateMap(stateData) {
+    const container = document.getElementById('stateMapContainer');
+    if (!container) return;
+
+    // Clear container
+    container.innerHTML = '';
+
+    // Initialize map centered on India
+    const map = L.map(container, {
+        center: [20.5937, 78.9629], // Center of India
+        zoom: 5,
+        minZoom: 4,
+        maxZoom: 8
+    });
+
+    // Add tile layer (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+
+    // Find max count for bubble sizing
+    const maxCount = Math.max(...Object.values(stateData));
+    const minCount = Math.min(...Object.values(stateData));
+
+    // Add bubbles for each state
+    Object.entries(stateData).forEach(([state, count]) => {
+        const coords = INDIA_STATE_COORDINATES[state];
+        if (!coords) {
+            console.warn(`Coordinates not found for state: ${state}`);
+            return;
+        }
+
+        // Calculate bubble size (min 10px, max 50px radius)
+        const sizeRatio = (count - minCount) / (maxCount - minCount || 1);
+        const radius = 10 + (sizeRatio * 40);
+
+        // Create circle marker
+        const circle = L.circleMarker(coords, {
+            radius: radius,
+            fillColor: '#3B82F6',
+            color: '#1E40AF',
+            weight: 2,
+            opacity: 0.8,
+            fillOpacity: 0.6
+        }).addTo(map);
+
+        // Add popup with state info
+        circle.bindPopup(`
+            <div style="text-align: center; padding: 5px;">
+                <strong>${escapeHtml(state)}</strong><br>
+                <span style="font-size: 1.2em; color: #3B82F6; font-weight: bold;">${count.toLocaleString()}</span><br>
+                <small>Participants</small>
+            </div>
+        `);
+
+        // Add hover effect
+        circle.on('mouseover', function(e) {
+            this.setStyle({
+                fillColor: '#EF4444',
+                color: '#DC2626',
+                weight: 3,
+                fillOpacity: 0.8
+            });
+        });
+        circle.on('mouseout', function(e) {
+            this.setStyle({
+                fillColor: '#3B82F6',
+                color: '#1E40AF',
+                weight: 2,
+                fillOpacity: 0.6
+            });
+        });
+    });
+
+    // Fit map to show all markers
+    const bounds = Object.entries(stateData)
+        .map(([state]) => INDIA_STATE_COORDINATES[state])
+        .filter(coord => coord !== undefined);
+    
+    if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [50, 50] });
+    }
+}
+
+// Export to Google Sheet functionality
+function showToast(message, type = 'success') {
+    const statusDiv = document.getElementById('exportStatus');
+    if (!statusDiv) return;
+    
+    statusDiv.style.display = 'block';
+    statusDiv.className = `alert alert-${type === 'success' ? 'success' : 'danger'}`;
+    statusDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        ${escapeHtml(message)}
+    `;
+    
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+        statusDiv.style.display = 'none';
+    }, 5000);
+}
+
+async function exportToGoogleSheet() {
+    const btn = document.getElementById('exportToSheetBtn');
+    const statusDiv = document.getElementById('exportStatus');
+    
+    if (!btn) return;
+    
+    // Get Google Sheet ID from user (or use environment variable)
+    const sheetId = prompt('Enter Google Sheet ID (or leave empty to use default from environment):');
+    if (sheetId === null) {
+        return; // User cancelled
+    }
+    
+    // Disable button and show loading state
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+    statusDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/export-to-sheet', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                sheet_id: sheetId || undefined,
+                clear_first: true
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            showToast(
+                `Successfully exported ${data.rows_exported} rows to Google Sheet!`,
+                'success'
+            );
+        } else {
+            showToast(
+                data.error || 'Failed to export to Google Sheet',
+                'error'
+            );
+        }
+    } catch (error) {
+        console.error('Export error:', error);
+        showToast(
+            `Error: ${error.message || 'Failed to export to Google Sheet'}`,
+            'error'
+        );
+    } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    }
+}
+
+// Load demographics on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadDemographics();
+    
+    // Attach export button event listener
+    const exportBtn = document.getElementById('exportToSheetBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportToGoogleSheet);
+    }
+});
+</script>
+{% endblock %}

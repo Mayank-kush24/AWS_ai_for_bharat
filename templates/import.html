@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+
+{% block title %}Import Data - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="import-container">
+    <div class="page-header">
+        <h1><i class="fas fa-file-upload"></i> Import Data</h1>
+        <p class="subtitle">Import workshop data and user PII from XLSX files</p>
+    </div>
+
+    <div class="import-grid">
+        <!-- Master Workshops Import -->
+        <div class="import-card">
+            <div class="import-card-header">
+                <h2><i class="fas fa-file-excel"></i> Master Workshops File</h2>
+                <span class="badge badge-info">12 Sheets Required</span>
+            </div>
+            <div class="import-card-body">
+                <p class="import-description">
+                    Upload the master XLSX file containing 12 sheets with workshop data.
+                    Sheets must follow the sequence: Project 1, Form 1, Form 2, Project 2, etc.
+                </p>
+                
+                <div class="upload-area" id="workshopsUploadArea">
+                    <input type="file" id="workshopsFile" accept=".xlsx,.xls,.csv" style="display: none;">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>Drag & drop your XLSX file here</p>
+                        <p class="upload-hint">or click to browse</p>
+                        <span class="file-name" id="workshopsFileName"></span>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary btn-block" id="importWorkshopsBtn" disabled>
+                    <i class="fas fa-upload"></i> Import Workshops
+                </button>
+                
+                <div class="progress-container" id="workshopsProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="workshopsProgressFill"></div>
+                    </div>
+                    <p class="progress-text" id="workshopsProgressText">Processing...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- User PII Import -->
+        <div class="import-card">
+            <div class="import-card-header">
+                <h2><i class="fas fa-users"></i> User PII File</h2>
+                <span class="badge badge-success">Optional</span>
+            </div>
+            <div class="import-card-body">
+                <p class="import-description">
+                    Upload an XLSX file containing user personal identifiable information.
+                    This will create or update user records in the database.
+                </p>
+                
+                <div class="upload-area" id="piiUploadArea">
+                    <input type="file" id="piiFile" accept=".xlsx,.xls,.csv" style="display: none;">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>Drag & drop your XLSX file here</p>
+                        <p class="upload-hint">or click to browse</p>
+                        <span class="file-name" id="piiFileName"></span>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary btn-block" id="importPIIBtn" disabled>
+                    <i class="fas fa-upload"></i> Import User PII
+                </button>
+                
+                <div class="progress-container" id="piiProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="piiProgressFill"></div>
+                    </div>
+                    <p class="progress-text" id="piiProgressText">Processing...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="import-results" id="importResults" style="display: none;">
+        <div class="results-header">
+            <h2><i class="fas fa-chart-bar"></i> Import Results</h2>
+            <button class="btn btn-secondary" onclick="clearResults()">
+                <i class="fas fa-times"></i> Clear
+            </button>
+        </div>
+        
+        <div class="results-content" id="resultsContent">
+            <!-- Results will be displayed here -->
+        </div>
+    </div>
+</div>
+
+<script>
+// Workshops Import
+const workshopsUploadArea = document.getElementById('workshopsUploadArea');
+const workshopsFile = document.getElementById('workshopsFile');
+const workshopsFileName = document.getElementById('workshopsFileName');
+const importWorkshopsBtn = document.getElementById('importWorkshopsBtn');
+
+workshopsUploadArea.addEventListener('click', () => workshopsFile.click());
+workshopsUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    workshopsUploadArea.classList.add('drag-over');
+});
+workshopsUploadArea.addEventListener('dragleave', () => {
+    workshopsUploadArea.classList.remove('drag-over');
+});
+workshopsUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    workshopsUploadArea.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        workshopsFile.files = files;
+        handleWorkshopsFileSelect();
+    }
+});
+
+workshopsFile.addEventListener('change', handleWorkshopsFileSelect);
+
+function handleWorkshopsFileSelect() {
+    if (workshopsFile.files.length > 0) {
+        workshopsFileName.textContent = workshopsFile.files[0].name;
+        importWorkshopsBtn.disabled = false;
+    }
+}
+
+importWorkshopsBtn.addEventListener('click', async () => {
+    if (!workshopsFile.files.length) return;
+    
+    const formData = new FormData();
+    formData.append('file', workshopsFile.files[0]);
+    
+    importWorkshopsBtn.disabled = true;
+    document.getElementById('workshopsProgress').style.display = 'block';
+    updateProgress('workshopsProgressFill', 'workshopsProgressText', 50, 'Uploading...');
+    
+    try {
+        const response = await fetch('/api/import/workshops', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        updateProgress('workshopsProgressFill', 'workshopsProgressText', 100, 'Complete!');
+        
+        if (result.success) {
+            displayWorkshopsResults(result);
+            showFlashMessage('Workshops imported successfully!', 'success');
+        } else {
+            showFlashMessage('Import failed: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        showFlashMessage('Error: ' + error.message, 'error');
+    } finally {
+        importWorkshopsBtn.disabled = false;
+        setTimeout(() => {
+            document.getElementById('workshopsProgress').style.display = 'none';
+        }, 2000);
+    }
+});
+
+// User PII Import
+const piiUploadArea = document.getElementById('piiUploadArea');
+const piiFile = document.getElementById('piiFile');
+const piiFileName = document.getElementById('piiFileName');
+const importPIIBtn = document.getElementById('importPIIBtn');
+
+piiUploadArea.addEventListener('click', () => piiFile.click());
+piiUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    piiUploadArea.classList.add('drag-over');
+});
+piiUploadArea.addEventListener('dragleave', () => {
+    piiUploadArea.classList.remove('drag-over');
+});
+piiUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    piiUploadArea.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        piiFile.files = files;
+        handlePIIFileSelect();
+    }
+});
+
+piiFile.addEventListener('change', handlePIIFileSelect);
+
+function handlePIIFileSelect() {
+    if (piiFile.files.length > 0) {
+        piiFileName.textContent = piiFile.files[0].name;
+        importPIIBtn.disabled = false;
+    }
+}
+
+importPIIBtn.addEventListener('click', async () => {
+    if (!piiFile.files.length) return;
+    
+    const formData = new FormData();
+    formData.append('file', piiFile.files[0]);
+    
+    importPIIBtn.disabled = true;
+    document.getElementById('piiProgress').style.display = 'block';
+    updateProgress('piiProgressFill', 'piiProgressText', 50, 'Uploading...');
+    
+    try {
+        const response = await fetch('/api/import/user-pii', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        updateProgress('piiProgressFill', 'piiProgressText', 100, 'Complete!');
+        
+        if (result.success) {
+            displayPIIResults(result);
+            showFlashMessage('User PII imported successfully!', 'success');
+        } else {
+            showFlashMessage('Import failed: ' + (result.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        showFlashMessage('Error: ' + error.message, 'error');
+    } finally {
+        importPIIBtn.disabled = false;
+        setTimeout(() => {
+            document.getElementById('piiProgress').style.display = 'none';
+        }, 2000);
+    }
+});
+
+function updateProgress(fillId, textId, percent, text) {
+    document.getElementById(fillId).style.width = percent + '%';
+    document.getElementById(textId).textContent = text;
+}
+
+function displayWorkshopsResults(result) {
+    const resultsDiv = document.getElementById('importResults');
+    const contentDiv = document.getElementById('resultsContent');
+    
+    let html = `
+        <div class="result-summary">
+            <h3>Import Summary</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Workshops Processed</span>
+                    <span class="summary-value">${result.summary.workshops_processed}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Total Rows</span>
+                    <span class="summary-value">${result.summary.total_rows}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Form Entries</span>
+                    <span class="summary-value">${result.summary.total_form_entries}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Blog Submissions</span>
+                    <span class="summary-value">${result.summary.total_project_submissions}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Rows Inserted</span>
+                    <span class="summary-value text-success">${result.summary.rows_inserted}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Rows Updated</span>
+                    <span class="summary-value text-warning">${result.summary.rows_updated}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Errors</span>
+                    <span class="summary-value text-danger">${result.summary.total_errors}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (result.sheets && result.sheets.length > 0) {
+        html += '<div class="sheet-results"><h3>Sheet Details</h3>';
+        result.sheets.forEach(sheet => {
+            html += `
+                <div class="sheet-result">
+                    <h4>Sheet ${sheet.sheet_index}: ${sheet.sheet_name} (${sheet.sheet_type} - ${sheet.workshop_num})</h4>
+                    <div class="sheet-stats">
+                        <span>Rows Read: ${sheet.rows_read}</span>
+                        <span>Inserted: ${sheet.rows_inserted}</span>
+                        <span>Updated: ${sheet.rows_updated}</span>
+                        <span>Errors: ${sheet.errors.length}</span>
+                    </div>
+                    ${sheet.errors.length > 0 ? `
+                        <div class="sheet-errors">
+                            <strong>Errors:</strong>
+                            <ul>
+                                ${sheet.errors.slice(0, 10).map(err => `<li>${err}</li>`).join('')}
+                                ${sheet.errors.length > 10 ? `<li>... and ${sheet.errors.length - 10} more errors</li>` : ''}
+                            </ul>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+        html += '</div>';
+    }
+    
+    if (result.errors && result.errors.length > 0) {
+        html += `
+            <div class="result-errors">
+                <h3>Errors</h3>
+                <ul>
+                    ${result.errors.map(err => `<li>${err}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+    resultsDiv.style.display = 'block';
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+function displayPIIResults(result) {
+    const resultsDiv = document.getElementById('importResults');
+    const contentDiv = document.getElementById('resultsContent');
+    
+    let html = `
+        <div class="result-summary">
+            <h3>User PII Import Summary</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Rows Read</span>
+                    <span class="summary-value">${result.summary.rows_read}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Rows Inserted</span>
+                    <span class="summary-value text-success">${result.summary.rows_inserted}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Rows Updated</span>
+                    <span class="summary-value text-warning">${result.summary.rows_updated}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Errors</span>
+                    <span class="summary-value text-danger">${result.summary.total_errors}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (result.errors && result.errors.length > 0) {
+        html += `
+            <div class="result-errors">
+                <h3>Errors</h3>
+                <ul>
+                    ${result.errors.map(err => `<li>${err}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+    resultsDiv.style.display = 'block';
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+function clearResults() {
+    document.getElementById('importResults').style.display = 'none';
+    document.getElementById('resultsContent').innerHTML = '';
+}
+
+function showFlashMessage(message, type) {
+    const flashDiv = document.createElement('div');
+    flashDiv.className = `flash-message flash-${type}`;
+    flashDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    document.querySelector('.main-content').insertBefore(flashDiv, document.querySelector('.main-content').firstChild);
+    setTimeout(() => flashDiv.remove(), 5000);
+}
+</script>
+{% endblock %}
+

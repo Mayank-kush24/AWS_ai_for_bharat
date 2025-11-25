@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Permissions - {{ user.username if user.username else user[1] }} - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-key"></i> Manage Permissions: {{ user.full_name if user.full_name else user.username if user.username else user[1] }}</h1>
+        <a href="{{ url_for('admin_users_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Users
+        </a>
+    </div>
+
+    {% if (user.is_admin if user.is_admin is defined else False) %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> This user is an Administrator and has access to all pages automatically.
+    </div>
+    {% endif %}
+
+    <form method="POST" class="permissions-form">
+        <div class="permissions-container">
+            {% for category, permissions in permissions_by_category.items() %}
+            <div class="permission-category">
+                <h3><i class="fas fa-folder"></i> {{ category }}</h3>
+                <div class="permissions-grid">
+                    {% for perm in permissions %}
+                    {% set perm_id = perm.permission_id if perm.permission_id else perm[0] %}
+                    {% set route_name = perm.route_name if perm.route_name else perm[1] %}
+                    {% set display_name = perm.display_name if perm.display_name else perm[2] %}
+                    {% set description = perm.description if perm.description else (perm[3] if len(perm) > 3 else '') %}
+                    
+                    <div class="permission-item">
+                        <label class="permission-checkbox">
+                            <input type="checkbox" name="permissions" value="{{ perm_id }}"
+                                   {% if perm_id in user_permission_ids %}checked{% endif %}
+                                   {% if (user.is_admin if user.is_admin is defined else False) %}disabled{% endif %}>
+                            <div class="permission-content">
+                                <strong>{{ display_name }}</strong>
+                                <small>{{ description or route_name }}</small>
+                            </div>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary" {% if (user.is_admin if user.is_admin is defined else False) %}disabled{% endif %}>
+                <i class="fas fa-save"></i> Save Permissions
+            </button>
+            <a href="{{ url_for('admin_users_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<style>
+.permissions-form {
+    background: var(--card-bg);
+    border-radius: 0.75rem;
+    padding: 2rem;
+    border: 1px solid var(--border-color);
+}
+
+.permissions-container {
+    margin-bottom: 2rem;
+}
+
+.permission-category {
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.permission-category:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.permission-category h3 {
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.permissions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.permission-item {
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    transition: all 0.2s;
+}
+
+.permission-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.permission-checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    cursor: pointer;
+    margin: 0;
+}
+
+.permission-checkbox input[type="checkbox"] {
+    margin-top: 0.25rem;
+    cursor: pointer;
+}
+
+.permission-content {
+    flex: 1;
+}
+
+.permission-content strong {
+    display: block;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.permission-content small {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+</style>
+{% endblock %}
+

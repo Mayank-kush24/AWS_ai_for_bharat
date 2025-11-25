@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}{% if user %}Edit User{% else %}Create User{% endif %} - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1><i class="fas fa-user-{% if user %}edit{% else %}plus{% endif %}"></i> {% if user %}Edit User{% else %}Create User{% endif %}</h1>
+        <a href="{{ url_for('admin_users_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+    </div>
+
+    <form method="POST" class="form">
+        <div class="form-group">
+            <label for="username">Username <span class="required">*</span></label>
+            <input type="text" id="username" name="username" 
+                   value="{{ user.username if user and user.username else '' }}" 
+                   required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email <span class="required">*</span></label>
+            <input type="email" id="email" name="email" 
+                   value="{{ user.email if user and user.email else '' }}" 
+                   required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="full_name">Full Name</label>
+            <input type="text" id="full_name" name="full_name" 
+                   value="{{ user.full_name if user and user.full_name else '' }}" 
+                   class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="password">Password {% if not user %}<span class="required">*</span>{% else %}<small>(leave blank to keep current)</small>{% endif %}</label>
+            <input type="password" id="password" name="password" 
+                   {% if not user %}required{% endif %} 
+                   class="form-control">
+        </div>
+
+        <div class="form-group form-group-checkbox">
+            <label>
+                <input type="checkbox" name="is_admin" 
+                       {% if user and (user.is_admin if user.is_admin is defined else False) %}checked{% endif %}>
+                Administrator (Full access to all pages)
+            </label>
+        </div>
+
+        {% if user %}
+        <div class="form-group form-group-checkbox">
+            <label>
+                <input type="checkbox" name="is_active" 
+                       {% if user and (user.is_active if user.is_active is defined else True) %}checked{% endif %}>
+                Active (User can login)
+            </label>
+        </div>
+        {% endif %}
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> {% if user %}Update{% else %}Create{% endif %} User
+            </button>
+            <a href="{{ url_for('admin_users_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

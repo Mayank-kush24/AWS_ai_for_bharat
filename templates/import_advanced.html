@@ -1,0 +1,692 @@
+{% extends "base.html" %}
+
+{% block title %}Advanced Import - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="import-advanced-container">
+    <div class="page-header">
+        <h1><i class="fas fa-file-upload"></i> Advanced Data Import</h1>
+        <p class="subtitle">Map columns and configure import settings</p>
+    </div>
+
+    <!-- Step 1: File Upload -->
+    <div class="import-step" id="step1">
+        <div class="step-header">
+            <span class="step-number">1</span>
+            <h2>Upload File</h2>
+        </div>
+        <div class="step-content">
+            <div class="upload-area" id="fileUploadArea">
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                <div class="upload-content">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drag & drop your file here</p>
+                    <p class="upload-hint">or click to browse (XLSX, XLS, CSV)</p>
+                    <span class="file-name" id="fileName"></span>
+                </div>
+            </div>
+            
+            <div class="table-selector" id="tableSelector" style="display: none;">
+                <label for="targetTable">Select Target Table:</label>
+                <select id="targetTable" class="form-control">
+                    <option value="">-- Select Table --</option>
+                    <option value="user_pii">User PII</option>
+                    <option value="form_response">Form Response</option>
+                    <option value="aws_team_building">AWS Team Building</option>
+                    <option value="project_submission">Blog Submission</option>
+                    <option value="verification">Verification</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Column Mapping -->
+    <div class="import-step" id="step2" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">2</span>
+            <h2>Map Columns</h2>
+        </div>
+        <div class="step-content">
+            <div class="mapping-info">
+                <p>Map your file columns to database fields. Check the boxes next to fields you want to use for matching/updating records.</p>
+            </div>
+            
+            <div class="import-mode-selection">
+                <label>Import Mode:</label>
+                <div class="mode-options">
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="create" checked>
+                        <span>Create Only</span>
+                        <small>Insert new records only</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="upsert">
+                        <span>Create & Update</span>
+                        <small>Insert new or update existing</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="update">
+                        <span>Update Only</span>
+                        <small>Update existing records only</small>
+                    </label>
+                </div>
+            </div>
+
+            <div class="column-mapping-container" id="columnMapping">
+                <!-- Column mappings will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Preview & Import -->
+    <div class="import-step" id="step3" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">3</span>
+            <h2>Preview & Import</h2>
+        </div>
+        <div class="step-content">
+            <div class="preview-section">
+                <h3>Preview (First 5 Rows)</h3>
+                <div class="preview-table-container" id="previewTable">
+                    <!-- Preview table will be generated here -->
+                </div>
+            </div>
+            
+            <div class="import-summary" id="importSummary">
+                <!-- Summary will be shown here -->
+            </div>
+            
+            <button class="btn btn-primary btn-lg" id="startImportBtn" onclick="handleImportClick(event)">
+                <i class="fas fa-play"></i> Start Import
+            </button>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="import-results" id="importResults" style="display: none;">
+        <div class="results-header">
+            <h2><i class="fas fa-chart-bar"></i> Import Results</h2>
+            <button class="btn btn-secondary" onclick="resetImport()">
+                <i class="fas fa-redo"></i> New Import
+            </button>
+        </div>
+        <div class="results-content" id="resultsContent">
+            <!-- Results will be displayed here -->
+        </div>
+    </div>
+</div>
+
+<script>
+let fileData = null;
+let columnMappings = {};
+let fileColumns = [];
+let dbFields = {};
+let previewData = [];
+
+// Database field definitions
+const tableFields = {
+    user_pii: {
+        email: { label: 'Email (Primary Key)', required: true, canMatch: true },
+        name: { label: 'Name', required: true, canMatch: false },
+        phone_number: { label: 'Phone Number', required: false, canMatch: true },
+        gender: { label: 'Gender', required: false, canMatch: false },
+        country: { label: 'Country', required: false, canMatch: false },
+        state: { label: 'State', required: false, canMatch: false },
+        city: { label: 'City', required: false, canMatch: false },
+        date_of_birth: { label: 'Date of Birth', required: false, canMatch: false },
+        designation: { label: 'Designation', required: false, canMatch: false },
+        class_stream: { label: 'Class/Stream', required: false, canMatch: false },
+        degree_passout_year: { label: 'Degree Passout Year', required: false, canMatch: false },
+        occupation: { label: 'Occupation', required: false, canMatch: false },
+        linkedin: { label: 'LinkedIn', required: false, canMatch: false },
+        participated_in_academy_1_0: { label: 'Participated in Academy 1.0', required: false, canMatch: false },
+        registration_date_time: { label: 'Registration Date Time', required: false, canMatch: false }
+    },
+    form_response: {
+        email: { label: 'Email', required: true, canMatch: true },
+        form_name: { label: 'Form Name / Workshop Name', required: true, canMatch: false },
+        name: { label: 'Name', required: true, canMatch: false },
+        time_slot: { label: 'Time Slot', required: false, canMatch: false }
+    },
+    aws_team_building: {
+        workshop_name: { label: 'Workshop Name', required: true, canMatch: true },
+        email: { label: 'Email', required: true, canMatch: true },
+        name: { label: 'Name', required: true, canMatch: false },
+        workshop_link: { label: 'Workshop Link', required: false, canMatch: false },
+        team_id: { label: 'Team ID', required: false, canMatch: false }
+    },
+    project_submission: {
+        workshop_name: { label: 'Workshop Name', required: true, canMatch: true },
+        email: { label: 'Email', required: true, canMatch: true },
+        name: { label: 'Name', required: true, canMatch: false },
+        project_link: { label: 'Project Link', required: false, canMatch: false },
+        valid: { label: 'Valid (Boolean)', required: false, canMatch: false },
+        team_id: { label: 'Team ID', required: false, canMatch: false }
+    },
+    verification: {
+        workshop_name: { label: 'Workshop Name', required: true, canMatch: true },
+        email: { label: 'Email', required: true, canMatch: true },
+        name: { label: 'Name', required: true, canMatch: false },
+        project_ss: { label: 'Project Screenshot', required: false, canMatch: false },
+        project_valid: { label: 'Project Valid (Boolean)', required: false, canMatch: false },
+        blog: { label: 'Blog Link', required: false, canMatch: false },
+        blog_valid: { label: 'Blog Valid (Boolean)', required: false, canMatch: false },
+        team_id: { label: 'Team ID', required: false, canMatch: false }
+    }
+};
+
+// File upload handling
+const fileUploadArea = document.getElementById('fileUploadArea');
+const fileInput = document.getElementById('fileInput');
+const fileName = document.getElementById('fileName');
+const tableSelector = document.getElementById('tableSelector');
+
+fileUploadArea.addEventListener('click', () => fileInput.click());
+fileUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.add('drag-over');
+});
+fileUploadArea.addEventListener('dragleave', () => {
+    fileUploadArea.classList.remove('drag-over');
+});
+fileUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        handleFileSelect();
+    }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+
+const targetTableSelect = document.getElementById('targetTable');
+if (targetTableSelect) {
+    targetTableSelect.addEventListener('change', function() {
+        if (this.value && fileColumns.length > 0) {
+            loadColumnMapping();
+            document.getElementById('step2').style.display = 'block';
+        }
+    });
+}
+
+function handleFileSelect() {
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        console.error('No file selected');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    fileName.textContent = file.name;
+    
+    console.log('File selected:', file.name);
+    
+    // Upload file to get column info
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Show loading state
+    fileName.textContent = file.name + ' (Loading...)';
+    
+    fetch('/api/import/preview', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        console.log('Preview response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Preview data:', data);
+        if (data.success) {
+            fileColumns = data.columns || [];
+            fileData = data;
+            previewData = data.preview || [];
+            if (tableSelector) {
+                tableSelector.style.display = 'block';
+            }
+            fileName.textContent = file.name;
+            showFlashMessage('File loaded successfully! Select target table to continue.', 'success');
+        } else {
+            fileName.textContent = file.name;
+            showFlashMessage('Error: ' + (data.error || 'Failed to read file'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Preview error:', error);
+        fileName.textContent = file.name;
+        showFlashMessage('Error: ' + error.message, 'error');
+    });
+}
+
+function loadColumnMapping() {
+    const tableName = document.getElementById('targetTable').value;
+    dbFields = tableFields[tableName] || {};
+    
+    const mappingContainer = document.getElementById('columnMapping');
+    mappingContainer.innerHTML = '';
+    
+    // Create mapping table
+    const table = document.createElement('table');
+    table.className = 'mapping-table';
+    
+    // Header
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Database Field</th>
+            <th>File Column</th>
+            <th>Use for Matching</th>
+            <th>Required</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    // Body
+    const tbody = document.createElement('tbody');
+    
+    for (const [fieldKey, fieldInfo] of Object.entries(dbFields)) {
+        const row = document.createElement('tr');
+        row.className = fieldInfo.required ? 'required-field' : '';
+        
+        // Database field name
+        const fieldCell = document.createElement('td');
+        fieldCell.innerHTML = `
+            <strong>${fieldInfo.label}</strong>
+            ${fieldInfo.required ? '<span class="required-badge">Required</span>' : ''}
+        `;
+        
+        // Column selector
+        const columnCell = document.createElement('td');
+        const select = document.createElement('select');
+        select.className = 'form-control column-select';
+        select.dataset.field = fieldKey;
+        select.innerHTML = '<option value="">-- Skip --</option>';
+        
+        fileColumns.forEach(col => {
+            const option = document.createElement('option');
+            option.value = col;
+            option.textContent = col;
+            // Auto-match by name similarity
+            if (fieldKey.toLowerCase().includes(col.toLowerCase().replace(/\s+/g, '_')) ||
+                col.toLowerCase().includes(fieldKey.toLowerCase())) {
+                option.selected = true;
+                columnMappings[fieldKey] = col;
+            }
+            select.appendChild(option);
+        });
+        
+        select.addEventListener('change', function() {
+            columnMappings[fieldKey] = this.value || null;
+            updatePreview();
+        });
+        
+        columnCell.appendChild(select);
+        
+        // Match checkbox
+        const matchCell = document.createElement('td');
+        if (fieldInfo.canMatch) {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'match-checkbox';
+            checkbox.dataset.field = fieldKey;
+            checkbox.checked = fieldKey === 'email' || (fieldKey === 'workshop_name' && tableName !== 'user_pii');
+            checkbox.addEventListener('change', updatePreview);
+            matchCell.appendChild(checkbox);
+        } else {
+            matchCell.innerHTML = '<span class="text-muted">-</span>';
+        }
+        
+        // Required indicator
+        const requiredCell = document.createElement('td');
+        requiredCell.innerHTML = fieldInfo.required 
+            ? '<span class="badge badge-danger">Required</span>'
+            : '<span class="text-muted">Optional</span>';
+        
+        row.appendChild(fieldCell);
+        row.appendChild(columnCell);
+        row.appendChild(matchCell);
+        row.appendChild(requiredCell);
+        tbody.appendChild(row);
+    }
+    
+    table.appendChild(tbody);
+    mappingContainer.appendChild(table);
+    
+    // Show step 3
+    document.getElementById('step3').style.display = 'block';
+    updatePreview();
+}
+
+function updatePreview() {
+    if (!previewData.length) return;
+    
+    const tableName = document.getElementById('targetTable').value;
+    const previewContainer = document.getElementById('previewTable');
+    
+    // Get match fields
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    // Build preview table
+    let html = '<table class="data-table"><thead><tr>';
+    
+    // Headers
+    Object.entries(dbFields).forEach(([key, info]) => {
+        if (columnMappings[key]) {
+            html += `<th>${info.label}${matchFields.includes(key) ? ' <span class="match-badge">Match</span>' : ''}</th>`;
+        }
+    });
+    html += '</tr></thead><tbody>';
+    
+    // Rows (first 5)
+    previewData.slice(0, 5).forEach(row => {
+        html += '<tr>';
+        Object.entries(dbFields).forEach(([key, info]) => {
+            if (columnMappings[key]) {
+                const colIndex = fileColumns.indexOf(columnMappings[key]);
+                const value = colIndex >= 0 ? (row[colIndex] || '') : '';
+                html += `<td>${value}</td>`;
+            }
+        });
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    previewContainer.innerHTML = html;
+    
+    // Update summary
+    updateSummary();
+}
+
+function updateSummary() {
+    const tableName = document.getElementById('targetTable').value;
+    const importMode = document.querySelector('input[name="importMode"]:checked').value;
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    const requiredFields = Object.entries(dbFields)
+        .filter(([key, info]) => info.required)
+        .map(([key]) => key);
+    
+    const mappedRequired = requiredFields.filter(key => columnMappings[key]);
+    const allRequiredMapped = requiredFields.every(key => columnMappings[key]);
+    
+    let summary = `
+        <div class="summary-card">
+            <h4>Import Configuration</h4>
+            <ul class="summary-list">
+                <li><strong>Table:</strong> ${tableName}</li>
+                <li><strong>Mode:</strong> ${importMode === 'create' ? 'Create Only' : importMode === 'upsert' ? 'Create & Update' : 'Update Only'}</li>
+                <li><strong>Match Fields:</strong> ${matchFields.length > 0 ? matchFields.join(', ') : 'None'}</li>
+                <li><strong>Total Rows:</strong> ${previewData.length}</li>
+                <li><strong>Required Fields Mapped:</strong> ${mappedRequired.length}/${requiredFields.length}</li>
+            </ul>
+            ${!allRequiredMapped ? '<div class="alert alert-warning">⚠️ Some required fields are not mapped!</div>' : ''}
+            ${matchFields.length === 0 && importMode !== 'create' ? '<div class="alert alert-danger">⚠️ No match fields selected for update mode!</div>' : ''}
+        </div>
+    `;
+    
+    document.getElementById('importSummary').innerHTML = summary;
+}
+
+// Import handler function (can be called directly or via event listener)
+async function handleImportClick(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    console.log('Import button clicked');
+    
+    const tableName = document.getElementById('targetTable').value;
+    const importMode = document.querySelector('input[name="importMode"]:checked');
+    const startImportBtn = document.getElementById('startImportBtn');
+    
+    if (!tableName) {
+        showFlashMessage('Please select a target table!', 'error');
+        return false;
+    }
+    
+    if (!importMode) {
+        showFlashMessage('Please select an import mode!', 'error');
+        return false;
+    }
+    
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+        showFlashMessage('Please upload a file first!', 'error');
+        return false;
+    }
+    
+    const mode = importMode.value;
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    // Validate
+    const requiredFields = Object.entries(dbFields)
+        .filter(([key, info]) => info.required)
+        .map(([key]) => key);
+    
+    const allRequiredMapped = requiredFields.every(key => columnMappings[key]);
+    if (!allRequiredMapped) {
+        showFlashMessage('Please map all required fields!', 'error');
+        return false;
+    }
+    
+    if (mode !== 'create' && matchFields.length === 0) {
+        showFlashMessage('Please select at least one field for matching!', 'error');
+        return false;
+    }
+    
+    // Prepare import data
+    const importConfig = {
+        table: tableName,
+        mode: mode,
+        mappings: columnMappings,
+        match_fields: matchFields
+    };
+    
+    console.log('Import config:', importConfig);
+    console.log('Column mappings:', columnMappings);
+    console.log('Match fields:', matchFields);
+    
+    // Show progress
+    if (startImportBtn) {
+        startImportBtn.disabled = true;
+        const originalHTML = startImportBtn.innerHTML;
+        startImportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+        
+        // Upload file with config
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('config', JSON.stringify(importConfig));
+        
+        try {
+            console.log('Sending import request to /api/import/advanced...');
+            const response = await fetch('/api/import/advanced', {
+                method: 'POST',
+                body: formData
+            });
+            
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Error response:', errorText);
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            }
+            
+            const result = await response.json();
+            console.log('Import result:', result);
+            
+            if (result.success) {
+                displayResults(result);
+                const totalErrors = (result.summary?.errors || 0) + (result.errors?.length || 0);
+                if (totalErrors > 0) {
+                    showFlashMessage(`Import completed with ${totalErrors} error(s). Check results below.`, 'warning');
+                } else {
+                    showFlashMessage('Import completed successfully!', 'success');
+                }
+            } else {
+                const errorMsg = result.error || 'Unknown error';
+                console.error('Import failed:', errorMsg);
+                showFlashMessage('Import failed: ' + errorMsg, 'error');
+                if (result.errors && result.errors.length > 0) {
+                    console.error('Import errors:', result.errors);
+                }
+            }
+        } catch (error) {
+            console.error('Import error:', error);
+            console.error('Error stack:', error.stack);
+            showFlashMessage('Error: ' + error.message, 'error');
+        } finally {
+            if (startImportBtn) {
+                startImportBtn.disabled = false;
+                startImportBtn.innerHTML = originalHTML;
+            }
+        }
+    }
+    
+    return false;
+}
+
+// Also attach event listener as backup
+document.addEventListener('DOMContentLoaded', function() {
+    const startImportBtn = document.getElementById('startImportBtn');
+    if (startImportBtn && !startImportBtn.onclick) {
+        startImportBtn.addEventListener('click', handleImportClick);
+        console.log('Event listener attached to import button');
+    }
+});
+
+function displayResults(result) {
+    const resultsDiv = document.getElementById('importResults');
+    const contentDiv = document.getElementById('resultsContent');
+    
+    const totalErrors = (result.summary?.errors || 0) + (result.errors?.length || 0);
+    const hasErrors = totalErrors > 0;
+    
+    let html = `
+        <div class="result-summary">
+            <h3>Import Summary</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Rows Processed</span>
+                    <span class="summary-value">${result.summary?.total_rows || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Created</span>
+                    <span class="summary-value text-success">${result.summary?.created || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Updated</span>
+                    <span class="summary-value text-warning">${result.summary?.updated || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Skipped</span>
+                    <span class="summary-value text-muted">${result.summary?.skipped || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Errors</span>
+                    <span class="summary-value text-danger">${totalErrors}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (hasErrors) {
+        html += `
+            <div class="result-errors">
+                <h3><i class="fas fa-exclamation-triangle"></i> Errors and Warnings</h3>
+                <div class="errors-container">
+                    <div class="errors-list">
+                        ${(result.errors || []).slice(0, 100).map((err, idx) => `
+                            <div class="error-item">
+                                <span class="error-number">${idx + 1}</span>
+                                <span class="error-message">${escapeHtml(err)}</span>
+                            </div>
+                        `).join('')}
+                        ${(result.errors || []).length > 100 ? `
+                            <div class="error-item error-info">
+                                <span class="error-message">... and ${(result.errors || []).length - 100} more errors</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        html += `
+            <div class="result-success">
+                <h3><i class="fas fa-check-circle"></i> All records imported successfully!</h3>
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+    resultsDiv.style.display = 'block';
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function resetImport() {
+    fileData = null;
+    columnMappings = {};
+    fileColumns = [];
+    dbFields = {};
+    previewData = [];
+    
+    fileInput.value = '';
+    fileName.textContent = '';
+    tableSelector.style.display = 'none';
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step3').style.display = 'none';
+    document.getElementById('importResults').style.display = 'none';
+}
+
+function showFlashMessage(message, type) {
+    console.log('Flash message:', type, message);
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) {
+        console.error('Main content not found');
+        alert(message); // Fallback to alert
+        return;
+    }
+    
+    const flashDiv = document.createElement('div');
+    flashDiv.className = `flash-message flash-${type}`;
+    flashDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    
+    const flashMessages = mainContent.querySelector('.flash-messages');
+    if (flashMessages) {
+        flashMessages.appendChild(flashDiv);
+    } else {
+        const flashContainer = document.createElement('div');
+        flashContainer.className = 'flash-messages';
+        flashContainer.appendChild(flashDiv);
+        mainContent.insertBefore(flashContainer, mainContent.firstChild);
+    }
+    
+    setTimeout(() => {
+        if (flashDiv.parentElement) {
+            flashDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
+

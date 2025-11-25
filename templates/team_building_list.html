@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Team Building - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-users-cog"></i> AWS Team Building</h1>
+        <a href="{{ url_for('team_building_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Record
+        </a>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Workshop Name</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Team ID</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if records %}
+                    {% for record in records %}
+                    <tr>
+                        <td><strong>{{ record.workshop_name }}</strong></td>
+                        <td>{{ record.email }}</td>
+                        <td>{{ record.name }}</td>
+                        <td>{{ record.team_id or '-' }}</td>
+                        <td>{{ record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No records found. <a href="{{ url_for('team_building_create') }}">Create one now</a></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

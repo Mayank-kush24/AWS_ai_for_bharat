@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Users - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-users"></i> Users</h1>
+        <a href="{{ url_for('user_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Add New User
+        </a>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Country</th>
+                    <th>Registration Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if users %}
+                    {% for user in users %}
+                    <tr>
+                        <td><strong>{{ user.email }}</strong></td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.phone_number or '-' }}</td>
+                        <td>{{ user.country or '-' }}</td>
+                        <td>{{ user.registration_date_time.strftime('%Y-%m-%d') if user.registration_date_time else '-' }}</td>
+                        <td class="actions">
+                            <a href="{{ url_for('user_view', email=user.email) }}" class="btn btn-sm btn-info" title="View">
+                                <i class="fas fa-eye"></i>
+                            </a>
+                            <a href="{{ url_for('user_edit', email=user.email) }}" class="btn btn-sm btn-warning" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">No users found. <a href="{{ url_for('user_create') }}">Create one now</a></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

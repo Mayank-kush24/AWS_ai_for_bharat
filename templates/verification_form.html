@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Verification - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1><i class="fas fa-check-circle"></i> Create Verification Record</h1>
+        <a href="{{ url_for('verifications_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+    </div>
+
+    <form method="POST" class="form">
+        <div class="form-group">
+            <label for="workshop_name">Workshop Name <span class="required">*</span></label>
+            <input type="text" id="workshop_name" name="workshop_name" required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="email">User Email <span class="required">*</span></label>
+            <select id="email" name="email" required class="form-control">
+                <option value="">Select User</option>
+                {% for user in users %}
+                <option value="{{ user.email }}">{{ user.email }} - {{ user.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="name">Name <span class="required">*</span></label>
+            <input type="text" id="name" name="name" required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="project_ss">Project Screenshot/Link</label>
+            <input type="text" id="project_ss" name="project_ss" class="form-control">
+        </div>
+
+        <div class="form-group form-group-checkbox">
+            <label>
+                <input type="checkbox" name="project_valid">
+                Project Valid
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label for="blog">Blog Link</label>
+            <input type="url" id="blog" name="blog" class="form-control">
+        </div>
+
+        <div class="form-group form-group-checkbox">
+            <label>
+                <input type="checkbox" name="blog_valid">
+                Blog Valid
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label for="team_id">Team ID</label>
+            <input type="text" id="team_id" name="team_id" class="form-control">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> Create Verification
+            </button>
+            <a href="{{ url_for('verifications_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

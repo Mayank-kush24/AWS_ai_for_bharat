@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Blog Submissions - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-blog"></i> Blog Submissions</h1>
+        <a href="{{ url_for('blog_submission_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Submission
+        </a>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Workshop Name</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Valid</th>
+                    <th>Team ID</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if submissions %}
+                    {% for submission in submissions %}
+                    <tr>
+                        <td><strong>{{ submission.workshop_name }}</strong></td>
+                        <td>{{ submission.email }}</td>
+                        <td>{{ submission.name }}</td>
+                        <td>
+                            <span class="badge badge-{% if submission.valid %}success{% else %}danger{% endif %}">
+                                {% if submission.valid %}Valid{% else %}Invalid{% endif %}
+                            </span>
+                        </td>
+                        <td>{{ submission.team_id or '-' }}</td>
+                        <td>{{ submission.created_at.strftime('%Y-%m-%d %H:%M:%S') if submission.created_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">No submissions found. <a href="{{ url_for('blog_submission_create') }}">Create one now</a></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

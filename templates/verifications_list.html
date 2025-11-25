@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Verifications - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-check-circle"></i> Verifications</h1>
+        <a href="{{ url_for('verification_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Verification
+        </a>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Workshop Name</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Project Valid</th>
+                    <th>Blog Valid</th>
+                    <th>Team ID</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if verifications %}
+                    {% for verification in verifications %}
+                    <tr>
+                        <td><strong>{{ verification.workshop_name }}</strong></td>
+                        <td>{{ verification.email }}</td>
+                        <td>{{ verification.name }}</td>
+                        <td>
+                            <span class="badge badge-{% if verification.project_valid %}success{% else %}danger{% endif %}">
+                                {% if verification.project_valid %}Valid{% else %}Invalid{% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-{% if verification.blog_valid %}success{% else %}danger{% endif %}">
+                                {% if verification.blog_valid %}Valid{% else %}Invalid{% endif %}
+                            </span>
+                        </td>
+                        <td>{{ verification.team_id or '-' }}</td>
+                        <td>{{ verification.created_at.strftime('%Y-%m-%d %H:%M:%S') if verification.created_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">No verifications found. <a href="{{ url_for('verification_create') }}">Create one now</a></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

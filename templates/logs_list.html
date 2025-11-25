@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Activity Logs - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-history"></i> Activity Logs</h1>
+    </div>
+
+    <div class="filters">
+        <form method="GET" class="filter-form">
+            <div class="filter-group">
+                <label for="table">Filter by Table:</label>
+                <select id="table" name="table" class="form-control">
+                    <option value="">All Tables</option>
+                    <option value="user_pii" {% if table_filter == 'user_pii' %}selected{% endif %}>User PII</option>
+                    <option value="form_response" {% if table_filter == 'form_response' %}selected{% endif %}>Form Response</option>
+                    <option value="aws_team_building" {% if table_filter == 'aws_team_building' %}selected{% endif %}>AWS Team Building</option>
+                    <option value="project_submission" {% if table_filter == 'project_submission' %}selected{% endif %}>Blog Submission</option>
+                    <option value="verification" {% if table_filter == 'verification' %}selected{% endif %}>Verification</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="operation">Filter by Operation:</label>
+                <select id="operation" name="operation" class="form-control">
+                    <option value="">All Operations</option>
+                    <option value="INSERT" {% if operation_filter == 'INSERT' %}selected{% endif %}>INSERT</option>
+                    <option value="UPDATE" {% if operation_filter == 'UPDATE' %}selected{% endif %}>UPDATE</option>
+                    <option value="DELETE" {% if operation_filter == 'DELETE' %}selected{% endif %}>DELETE</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="limit">Limit:</label>
+                <input type="number" id="limit" name="limit" value="{{ request.args.get('limit', 100) }}" min="1" max="1000" class="form-control">
+            </div>
+
+            <button type="submit" class="btn btn-primary">Apply Filters</button>
+            <a href="{{ url_for('logs_list') }}" class="btn btn-secondary">Clear</a>
+        </form>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Table</th>
+                    <th>Operation</th>
+                    <th>Record Identifier</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if logs %}
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                        <td><span class="badge badge-info">{{ log.table_name }}</span></td>
+                        <td>
+                            <span class="badge badge-{% if log.operation_type == 'INSERT' %}success{% elif log.operation_type == 'UPDATE' %}warning{% else %}danger{% endif %}">
+                                {{ log.operation_type }}
+                            </span>
+                        </td>
+                        <td class="text-mono">{{ log.record_identifier }}</td>
+                        <td>
+                            {% if log.old_values or log.new_values %}
+                                <details>
+                                    <summary>View Details</summary>
+                                    {% if log.old_values %}
+                                        <div class="log-detail">
+                                            <strong>Old Values:</strong>
+                                            <pre class="json-preview">{{ log.old_values | tojson(indent=2) }}</pre>
+                                        </div>
+                                    {% endif %}
+                                    {% if log.new_values %}
+                                        <div class="log-detail">
+                                            <strong>New Values:</strong>
+                                            <pre class="json-preview">{{ log.new_values | tojson(indent=2) }}</pre>
+                                        </div>
+                                    {% endif %}
+                                </details>
+                            {% else %}
+                                <span class="text-muted">No details</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No logs found</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

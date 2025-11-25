@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}{{ user.name }} - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-user"></i> {{ user.name }}</h1>
+        <div class="header-actions">
+            <a href="{{ url_for('user_edit', email=user.email) }}" class="btn btn-warning">
+                <i class="fas fa-edit"></i> Edit
+            </a>
+            <a href="{{ url_for('users_list') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="detail-grid">
+        <div class="detail-card">
+            <h2><i class="fas fa-info-circle"></i> Personal Information</h2>
+            <dl class="detail-list">
+                <dt>Email</dt>
+                <dd>{{ user.email }}</dd>
+                <dt>Name</dt>
+                <dd>{{ user.name }}</dd>
+                <dt>Phone Number</dt>
+                <dd>{{ user.phone_number or 'Not provided' }}</dd>
+                <dt>Gender</dt>
+                <dd>{{ user.gender or 'Not provided' }}</dd>
+                <dt>Date of Birth</dt>
+                <dd>{{ user.date_of_birth.strftime('%Y-%m-%d') if user.date_of_birth else 'Not provided' }}</dd>
+            </dl>
+        </div>
+
+        <div class="detail-card">
+            <h2><i class="fas fa-map-marker-alt"></i> Location</h2>
+            <dl class="detail-list">
+                <dt>Country</dt>
+                <dd>{{ user.country or 'Not provided' }}</dd>
+                <dt>State</dt>
+                <dd>{{ user.state or 'Not provided' }}</dd>
+                <dt>City</dt>
+                <dd>{{ user.city or 'Not provided' }}</dd>
+            </dl>
+        </div>
+
+        <div class="detail-card">
+            <h2><i class="fas fa-briefcase"></i> Professional Information</h2>
+            <dl class="detail-list">
+                <dt>Designation</dt>
+                <dd>{{ user.designation or 'Not provided' }}</dd>
+                <dt>Occupation</dt>
+                <dd>{{ user.occupation or 'Not provided' }}</dd>
+                <dt>Class/Stream</dt>
+                <dd>{{ user.class_stream or 'Not provided' }}</dd>
+                <dt>Degree Passout Year</dt>
+                <dd>{{ user.degree_passout_year or 'Not provided' }}</dd>
+                <dt>LinkedIn</dt>
+                <dd>{% if user.linkedin %}<a href="{{ user.linkedin }}" target="_blank">{{ user.linkedin }}</a>{% else %}Not provided{% endif %}</dd>
+            </dl>
+        </div>
+
+        <div class="detail-card">
+            <h2><i class="fas fa-calendar"></i> Registration Details</h2>
+            <dl class="detail-list">
+                <dt>Registration Date</dt>
+                <dd>{{ user.registration_date_time.strftime('%Y-%m-%d %H:%M:%S') if user.registration_date_time else 'N/A' }}</dd>
+                <dt>Participated in Academy 1.0</dt>
+                <dd>
+                    <span class="badge badge-{% if user.participated_in_academy_1_0 %}success{% else %}secondary{% endif %}">
+                        {% if user.participated_in_academy_1_0 %}Yes{% else %}No{% endif %}
+                    </span>
+                </dd>
+                <dt>Created At</dt>
+                <dd>{{ user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else 'N/A' }}</dd>
+                <dt>Updated At</dt>
+                <dd>{{ user.updated_at.strftime('%Y-%m-%d %H:%M:%S') if user.updated_at else 'N/A' }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    {% if logs %}
+    <div class="dashboard-section">
+        <h2><i class="fas fa-history"></i> Activity History</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Operation</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                        <td>
+                            <span class="badge badge-{% if log.operation_type == 'INSERT' %}success{% elif log.operation_type == 'UPDATE' %}warning{% else %}danger{% endif %}">
+                                {{ log.operation_type }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if log.new_values %}
+                                <details>
+                                    <summary>View Changes</summary>
+                                    <pre class="json-preview">{{ log.new_values | tojson(indent=2) }}</pre>
+                                </details>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+

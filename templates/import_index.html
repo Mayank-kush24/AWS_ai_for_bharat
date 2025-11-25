@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Import Data - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="import-index-container">
+    <div class="page-header">
+        <h1><i class="fas fa-file-upload"></i> Import Data</h1>
+        <p class="subtitle">Choose your import method</p>
+    </div>
+
+    <div class="import-options-grid">
+        <div class="import-option-card">
+            <div class="option-icon">
+                <i class="fas fa-file-excel"></i>
+            </div>
+            <h2>Master Workbook (12 Sheets)</h2>
+            <p>Import workshop data from the master XLSX file with 12 sheets. Auto-detects sheets and allows workshop selection.</p>
+            <ul class="feature-list">
+                <li><i class="fas fa-check"></i> Auto-detect 12 sheets by sequence</li>
+                <li><i class="fas fa-check"></i> Select workshop pair to import</li>
+                <li><i class="fas fa-check"></i> Separate mapping for form & project</li>
+                <li><i class="fas fa-check"></i> Auto-fill workshop names</li>
+            </ul>
+            <a href="{{ url_for('import_master_page') }}" class="btn btn-primary btn-block">
+                <i class="fas fa-arrow-right"></i> Import Master Workbook
+            </a>
+        </div>
+
+        <div class="import-option-card">
+            <div class="option-icon">
+                <i class="fas fa-table"></i>
+            </div>
+            <h2>Single Table Import</h2>
+            <p>Import data to a single table with column mapping. Supports any table with flexible field matching.</p>
+            <ul class="feature-list">
+                <li><i class="fas fa-check"></i> Column mapping UI</li>
+                <li><i class="fas fa-check"></i> Field selection for matching</li>
+                <li><i class="fas fa-check"></i> Create/Update/Upsert modes</li>
+                <li><i class="fas fa-check"></i> Preview before import</li>
+            </ul>
+            <a href="{{ url_for('import_advanced_page') }}" class="btn btn-primary btn-block">
+                <i class="fas fa-arrow-right"></i> Single Table Import
+            </a>
+        </div>
+
+        <div class="import-option-card">
+            <div class="option-icon">
+                <i class="fas fa-bolt"></i>
+            </div>
+            <h2>Quick Import (Original)</h2>
+            <p>Quick import for master workshops file and user PII. Uses predefined mappings.</p>
+            <ul class="feature-list">
+                <li><i class="fas fa-check"></i> Predefined mappings</li>
+                <li><i class="fas fa-check"></i> Fast import process</li>
+                <li><i class="fas fa-check"></i> Automatic sheet detection</li>
+            </ul>
+            <a href="{{ url_for('import_simple_page') }}" class="btn btn-secondary btn-block">
+                <i class="fas fa-arrow-right"></i> Quick Import
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

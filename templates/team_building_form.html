@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Team Building - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1><i class="fas fa-users-cog"></i> Create Team Building Record</h1>
+        <a href="{{ url_for('team_building_list') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+    </div>
+
+    <form method="POST" class="form">
+        <div class="form-group">
+            <label for="workshop_name">Workshop Name <span class="required">*</span></label>
+            <input type="text" id="workshop_name" name="workshop_name" required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="email">User Email <span class="required">*</span></label>
+            <select id="email" name="email" required class="form-control">
+                <option value="">Select User</option>
+                {% for user in users %}
+                <option value="{{ user.email }}">{{ user.email }} - {{ user.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="name">Name <span class="required">*</span></label>
+            <input type="text" id="name" name="name" required class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="workshop_link">Workshop Link</label>
+            <input type="url" id="workshop_link" name="workshop_link" class="form-control">
+        </div>
+
+        <div class="form-group">
+            <label for="team_id">Team ID</label>
+            <input type="text" id="team_id" name="team_id" class="form-control">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> Create Record
+            </button>
+            <a href="{{ url_for('team_building_list') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

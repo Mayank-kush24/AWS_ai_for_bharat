@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Form Responses - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-file-alt"></i> Form Responses</h1>
+        <a href="{{ url_for('form_response_create') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Form Response
+        </a>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Form Name</th>
+                    <th>Name</th>
+                    <th>Time Slot</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if form_responses %}
+                    {% for response in form_responses %}
+                    <tr>
+                        <td>{{ response.email }}</td>
+                        <td><strong>{{ response.form_name }}</strong></td>
+                        <td>{{ response.name }}</td>
+                        <td>{{ response.time_slot.strftime('%Y-%m-%d %H:%M') if response.time_slot else '-' }}</td>
+                        <td>{{ response.created_at.strftime('%Y-%m-%d %H:%M:%S') if response.created_at else '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No form responses found. <a href="{{ url_for('form_response_create') }}">Create one now</a></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+

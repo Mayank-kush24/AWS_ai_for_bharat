@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AWS AI for Bharat Tracking System{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <i class="fas fa-cloud"></i>
+                <span>AWS AI for Bharat</span>
+            </div>
+            <ul class="nav-menu">
+                {% if session.user_id %}
+                    {% set user_routes = session.get('user_routes', []) %}
+                    {% if session.is_admin %}
+                        {# Admin has all permissions #}
+                        <li><a href="{{ url_for('index') }}" class="nav-link"><i class="fas fa-home"></i> Dashboard</a></li>
+                        <li><a href="{{ url_for('users_list') }}" class="nav-link"><i class="fas fa-users"></i> Users</a></li>
+                        <li><a href="{{ url_for('workshops_view') }}" class="nav-link"><i class="fas fa-chalkboard-teacher"></i> Workshops</a></li>
+                        <li><a href="{{ url_for('team_building_list') }}" class="nav-link"><i class="fas fa-users-cog"></i> Team Building</a></li>
+                        <li><a href="{{ url_for('blog_submissions_list') }}" class="nav-link"><i class="fas fa-blog"></i> Blog Submissions</a></li>
+                        <li><a href="{{ url_for('logs_list') }}" class="nav-link"><i class="fas fa-history"></i> Activity Logs</a></li>
+                        <li><a href="{{ url_for('import_page') }}" class="nav-link"><i class="fas fa-file-upload"></i> Import</a></li>
+                        <li><a href="{{ url_for('admin_users_list') }}" class="nav-link"><i class="fas fa-users-cog"></i> User Management</a></li>
+                    {% else %}
+                        {# Regular users - show only allowed pages #}
+                        {% if 'index' in user_routes or not user_routes %}
+                            <li><a href="{{ url_for('index') }}" class="nav-link"><i class="fas fa-home"></i> Dashboard</a></li>
+                        {% endif %}
+                        {% if 'users_list' in user_routes %}
+                            <li><a href="{{ url_for('users_list') }}" class="nav-link"><i class="fas fa-users"></i> Users</a></li>
+                        {% endif %}
+                        {% if 'workshops_view' in user_routes %}
+                            <li><a href="{{ url_for('workshops_view') }}" class="nav-link"><i class="fas fa-chalkboard-teacher"></i> Workshops</a></li>
+                        {% endif %}
+                        {% if 'team_building_list' in user_routes %}
+                            <li><a href="{{ url_for('team_building_list') }}" class="nav-link"><i class="fas fa-users-cog"></i> Team Building</a></li>
+                        {% endif %}
+                        {% if 'blog_submissions_list' in user_routes %}
+                            <li><a href="{{ url_for('blog_submissions_list') }}" class="nav-link"><i class="fas fa-blog"></i> Blog Submissions</a></li>
+                        {% endif %}
+                        {% if 'logs_list' in user_routes %}
+                            <li><a href="{{ url_for('logs_list') }}" class="nav-link"><i class="fas fa-history"></i> Activity Logs</a></li>
+                        {% endif %}
+                        {% if 'import_page' in user_routes %}
+                            <li><a href="{{ url_for('import_page') }}" class="nav-link"><i class="fas fa-file-upload"></i> Import</a></li>
+                        {% endif %}
+                    {% endif %}
+                    <li><a href="{{ url_for('logout') }}" class="nav-link"><i class="fas fa-sign-out-alt"></i> Logout ({{ session.full_name or session.username }})</a></li>
+                {% else %}
+                    <li><a href="{{ url_for('login') }}" class="nav-link"><i class="fas fa-sign-in-alt"></i> Login</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-messages">
+                    {% for category, message in messages %}
+                        <div class="flash-message flash-{{ category }}">
+                            <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'error' %}exclamation-circle{% else %}info-circle{% endif %}"></i>
+                            <span>{{ message }}</span>
+                            <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2024 AWS AI for Bharat Tracking System. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
+

@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}Workshops - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="workshops-container">
+    <div class="page-header">
+        <h1><i class="fas fa-chalkboard-teacher"></i> Workshops</h1>
+        <p class="subtitle">View and export form responses by workshop and time slot</p>
+    </div>
+
+    <!-- Workshop Tabs -->
+    <div class="workshop-tabs">
+        {% for i in range(1, 7) %}
+        <button class="workshop-tab {% if loop.first %}active{% endif %}" 
+                data-workshop="{{ i }}" 
+                onclick="loadWorkshopData({{ i }})">
+            <i class="fas fa-graduation-cap"></i> Workshop {{ i }}
+        </button>
+        {% endfor %}
+    </div>
+
+    <!-- Workshop Content -->
+    <div class="workshop-content" id="workshopContent">
+        <div class="loading-state" id="loadingState">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>Loading workshop data...</p>
+        </div>
+
+        <div class="workshop-data" id="workshopData" style="display: none;">
+            <div class="workshop-header">
+                <h2 id="workshopTitle">Workshop 1</h2>
+                <div class="workshop-stats">
+                    <span class="stat-item">
+                        <i class="fas fa-users"></i>
+                        <strong id="totalCount">0</strong> Total Responses
+                    </span>
+                    <span class="stat-item">
+                        <i class="fas fa-clock"></i>
+                        <strong id="timeSlotCount">0</strong> Time Slots
+                    </span>
+                </div>
+            </div>
+
+            <div class="time-slots-container" id="timeSlotsContainer">
+                <!-- Time slot groups will be rendered here -->
+            </div>
+        </div>
+
+        <div class="error-state" id="errorState" style="display: none;">
+            <i class="fas fa-exclamation-circle"></i>
+            <p id="errorMessage">Failed to load workshop data</p>
+            <button class="btn btn-primary" onclick="loadWorkshopData(1)">
+                <i class="fas fa-redo"></i> Retry
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentWorkshop = 1;
+
+function loadWorkshopData(workshopNum) {
+    currentWorkshop = workshopNum;
+    
+    // Update active tab
+    document.querySelectorAll('.workshop-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelector(`[data-workshop="${workshopNum}"]`).classList.add('active');
+    
+    // Show loading state
+    document.getElementById('loadingState').style.display = 'block';
+    document.getElementById('workshopData').style.display = 'none';
+    document.getElementById('errorState').style.display = 'none';
+    
+    // Fetch data
+    fetch(`/api/workshops/${workshopNum}/data`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                displayWorkshopData(data);
+            } else {
+                throw new Error(data.error || 'Failed to load data');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading workshop data:', error);
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('errorState').style.display = 'block';
+            document.getElementById('errorMessage').textContent = error.message;
+        });
+}
+
+function displayWorkshopData(data) {
+    const workshopData = document.getElementById('workshopData');
+    const timeSlotsContainer = document.getElementById('timeSlotsContainer');
+    
+    // Update header
+    document.getElementById('workshopTitle').textContent = data.workshop_name;
+    document.getElementById('totalCount').textContent = data.total_responses;
+    document.getElementById('timeSlotCount').textContent = Object.keys(data.time_slots).length;
+    
+    // Clear container
+    timeSlotsContainer.innerHTML = '';
+    
+    // Sort time slots (put "No Time Slot" at the end)
+    const sortedTimeSlots = Object.keys(data.time_slots).sort((a, b) => {
+        if (a === 'No Time Slot') return 1;
+        if (b === 'No Time Slot') return -1;
+        return a.localeCompare(b);
+    });
+    
+    // Render each time slot group
+    sortedTimeSlots.forEach((timeSlot, index) => {
+        const responses = data.time_slots[timeSlot];
+        const occupationBreakdown = data.occupation_breakdown ? data.occupation_breakdown[timeSlot] : null;
+        const timeSlotCard = createTimeSlotCard(timeSlot, responses, index, occupationBreakdown);
+        timeSlotsContainer.appendChild(timeSlotCard);
+    });
+    
+    // Show data
+    document.getElementById('loadingState').style.display = 'none';
+    workshopData.style.display = 'block';
+}
+
+function createTimeSlotCard(timeSlot, responses, index, occupationBreakdown) {
+    const card = document.createElement('div');
+    card.className = 'time-slot-card';
+    
+    // Format time slot display
+    let timeSlotDisplay = timeSlot;
+    if (timeSlot !== 'No Time Slot') {
+        try {
+            const date = new Date(timeSlot);
+            if (!isNaN(date.getTime())) {
+                timeSlotDisplay = date.toLocaleString('en-US', {
+                    weekday: 'short',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                });
+            }
+        } catch (e) {
+            // Use original if parsing fails
+        }
+    }
+    
+    // Build occupation breakdown HTML
+    let occupationHtml = '';
+    if (occupationBreakdown && Object.keys(occupationBreakdown).length > 0) {
+        const sortedOccupations = Object.entries(occupationBreakdown)
+            .sort((a, b) => b[1] - a[1]); // Sort by count descending
+        
+        occupationHtml = `
+            <div class="occupation-breakdown">
+                <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
+                <div class="occupation-list">
+                    ${sortedOccupations.map(([occupation, count]) => `
+                        <div class="occupation-item">
+                            <span class="occupation-name">${escapeHtml(occupation)}</span>
+                            <span class="occupation-count">${count}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    card.innerHTML = `
+        <div class="time-slot-header">
+            <div class="time-slot-info">
+                <h3>
+                    <i class="fas fa-clock"></i>
+                    ${timeSlotDisplay}
+                </h3>
+                <span class="response-count">${responses.length} ${responses.length === 1 ? 'response' : 'responses'}</span>
+            </div>
+            <div class="time-slot-actions">
+                <button class="btn btn-sm btn-primary" onclick="exportTimeSlot('${timeSlot}', ${currentWorkshop})">
+                    <i class="fas fa-download"></i> Export CSV
+                </button>
+            </div>
+        </div>
+        ${occupationHtml}
+        <div class="time-slot-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Phone</th>
+                        <th>Time Slot</th>
+                        <th>Designation</th>
+                        <th>Occupation</th>
+                        <th>LinkedIn</th>
+                        <th>Registered At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${responses.map((response, idx) => {
+                        // Use time_slot_range if available (full range), otherwise format time_slot
+                        let timeSlotDisplay = '-';
+                        if (response.time_slot_range) {
+                            // Use the original range string
+                            timeSlotDisplay = response.time_slot_range;
+                        } else if (response.time_slot) {
+                            try {
+                                const timeSlotDate = new Date(response.time_slot);
+                                if (!isNaN(timeSlotDate.getTime())) {
+                                    timeSlotDisplay = timeSlotDate.toLocaleString('en-US', {
+                                        weekday: 'short',
+                                        year: 'numeric',
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                        hour12: true
+                                    });
+                                } else {
+                                    timeSlotDisplay = response.time_slot;
+                                }
+                            } catch (e) {
+                                timeSlotDisplay = response.time_slot;
+                            }
+                        }
+                        return `
+                        <tr>
+                            <td>${idx + 1}</td>
+                            <td><strong>${escapeHtml(response.name || response.user_name || '-')}</strong></td>
+                            <td>${escapeHtml(response.email || '-')}</td>
+                            <td>${escapeHtml(response.phone_number || '-')}</td>
+                            <td>${escapeHtml(timeSlotDisplay)}</td>
+                            <td>${escapeHtml(response.designation || '-')}</td>
+                            <td>${escapeHtml(response.occupation || '-')}</td>
+                            <td>
+                                ${response.linkedin ? `<a href="${escapeHtml(response.linkedin)}" target="_blank" rel="noopener noreferrer"><i class="fab fa-linkedin"></i> View</a>` : '-'}
+                            </td>
+                            <td>${response.created_at ? new Date(response.created_at).toLocaleString() : '-'}</td>
+                        </tr>
+                    `;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    return card;
+}
+
+function exportTimeSlot(timeSlot, workshopNum) {
+    const url = `/api/workshops/${workshopNum}/export?time_slot=${encodeURIComponent(timeSlot)}`;
+    window.location.href = url;
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load first workshop on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadWorkshopData(1);
+});
+</script>
+{% endblock %}
+
