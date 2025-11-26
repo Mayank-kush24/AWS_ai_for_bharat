@@ -15,6 +15,11 @@
                 <i class="fas fa-cloud"></i>
                 <span>AWS AI for Bharat</span>
             </div>
+            <button class="nav-toggle" aria-label="Toggle navigation">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
             <ul class="nav-menu">
                 {% if session.user_id %}
                     {% set user_routes = session.get('user_routes', []) %}
@@ -52,6 +57,7 @@
                             <li><a href="{{ url_for('import_page') }}" class="nav-link"><i class="fas fa-file-upload"></i> Import</a></li>
                         {% endif %}
                     {% endif %}
+                    <li class="nav-separator"></li>
                     <li><a href="{{ url_for('logout') }}" class="nav-link"><i class="fas fa-sign-out-alt"></i> Logout ({{ session.full_name or session.username }})</a></li>
                 {% else %}
                     <li><a href="{{ url_for('login') }}" class="nav-link"><i class="fas fa-sign-in-alt"></i> Login</a></li>
@@ -80,7 +86,7 @@
 
     <footer class="footer">
         <div class="footer-content">
-            <p>&copy; 2024 AWS AI for Bharat Tracking System. All rights reserved.</p>
+            <p>&copy; 2025 AWS AI for Bharat Tracking System. All rights reserved.</p>
         </div>
     </footer>
 

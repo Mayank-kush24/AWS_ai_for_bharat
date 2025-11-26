@@ -161,36 +161,47 @@ function createTimeSlotCard(timeSlot, responses, index, occupationBreakdown) {
             .sort((a, b) => b[1] - a[1]); // Sort by count descending
         
         occupationHtml = `
-            <div class="occupation-breakdown">
-                <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
-                <div class="occupation-list">
-                    ${sortedOccupations.map(([occupation, count]) => `
-                        <div class="occupation-item">
-                            <span class="occupation-name">${escapeHtml(occupation)}</span>
-                            <span class="occupation-count">${count}</span>
-                        </div>
-                    `).join('')}
-                </div>
+            <div class="occupation-list">
+                ${sortedOccupations.map(([occupation, count]) => `
+                    <div class="occupation-item">
+                        <span class="occupation-name">${escapeHtml(occupation)}</span>
+                        <span class="occupation-count">${count}</span>
+                    </div>
+                `).join('')}
             </div>
         `;
     }
     
+    card.className = 'time-slot-card collapsed';
+    card.setAttribute('data-time-slot', timeSlot);
+    
     card.innerHTML = `
-        <div class="time-slot-header">
+        <div class="time-slot-header" onclick="toggleTimeSlot(this)">
             <div class="time-slot-info">
                 <h3>
                     <i class="fas fa-clock"></i>
                     ${timeSlotDisplay}
+                    <i class="fas fa-chevron-down toggle-icon"></i>
                 </h3>
                 <span class="response-count">${responses.length} ${responses.length === 1 ? 'response' : 'responses'}</span>
             </div>
-            <div class="time-slot-actions">
+            <div class="time-slot-actions" onclick="event.stopPropagation()">
                 <button class="btn btn-sm btn-primary" onclick="exportTimeSlot('${timeSlot}', ${currentWorkshop})">
                     <i class="fas fa-download"></i> Export CSV
                 </button>
             </div>
         </div>
-        ${occupationHtml}
+        ${occupationHtml ? `
+        <div class="occupation-breakdown-header collapsed" onclick="toggleOccupationBreakdown(this)">
+            <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
+            <i class="fas fa-chevron-down toggle-icon"></i>
+        </div>
+        <div class="occupation-breakdown collapsed">
+            <div class="occupation-breakdown-content">
+                ${occupationHtml}
+            </div>
+        </div>
+        ` : ''}
         <div class="time-slot-table-container">
             <table class="data-table">
                 <thead>
@@ -267,6 +278,36 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function toggleTimeSlot(header) {
+    const card = header.closest('.time-slot-card');
+    const isExpanded = card.classList.contains('expanded');
+    
+    if (isExpanded) {
+        card.classList.remove('expanded');
+        card.classList.add('collapsed');
+    } else {
+        card.classList.remove('collapsed');
+        card.classList.add('expanded');
+    }
+}
+
+function toggleOccupationBreakdown(header) {
+    const breakdown = header.nextElementSibling;
+    const isExpanded = breakdown.classList.contains('expanded');
+    
+    if (isExpanded) {
+        breakdown.classList.remove('expanded');
+        breakdown.classList.add('collapsed');
+        header.classList.remove('expanded');
+        header.classList.add('collapsed');
+    } else {
+        breakdown.classList.remove('collapsed');
+        breakdown.classList.add('expanded');
+        header.classList.remove('collapsed');
+        header.classList.add('expanded');
+    }
 }
 
 // Load first workshop on page load
