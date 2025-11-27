@@ -131,9 +131,17 @@
                 <!-- Summary will be shown here -->
             </div>
 
-            <button class="btn btn-primary btn-lg" id="startImportBtn" onclick="handleMasterImportClick(event)">
-                <i class="fas fa-play"></i> Start Import
-            </button>
+            <div class="import-buttons-group">
+                <button class="btn btn-primary btn-lg" id="importFormBtn" onclick="handleMasterImportClick(event, 'form')">
+                    <i class="fas fa-file-alt"></i> Import Form Response
+                </button>
+                <button class="btn btn-primary btn-lg" id="importProjectBtn" onclick="handleMasterImportClick(event, 'project')">
+                    <i class="fas fa-project-diagram"></i> Import Blog Submission
+                </button>
+                <button class="btn btn-primary btn-lg" id="importBothBtn" onclick="handleMasterImportClick(event, 'both')">
+                    <i class="fas fa-play"></i> Import Both
+                </button>
+            </div>
         </div>
     </div>
 
@@ -329,6 +337,33 @@ function loadWorkshopSelection() {
 }
 
 function selectWorkshop(workshopNum, workshopData) {
+    // Remove selected state from all cards
+    document.querySelectorAll('.workshop-card').forEach(card => {
+        card.classList.remove('selected');
+        const btn = card.querySelector('.select-workshop-btn');
+        if (btn) {
+            btn.classList.remove('selected');
+            const originalText = btn.getAttribute('data-original-text') || btn.textContent;
+            btn.innerHTML = originalText;
+        }
+    });
+    
+    // Add selected state to clicked card
+    const clickedBtn = document.querySelector(`.select-workshop-btn[data-workshop-num="${workshopNum}"]`);
+    if (clickedBtn) {
+        const card = clickedBtn.closest('.workshop-card');
+        if (card) {
+            card.classList.add('selected');
+        }
+        clickedBtn.classList.add('selected');
+        // Store original text if not already stored
+        if (!clickedBtn.getAttribute('data-original-text')) {
+            clickedBtn.setAttribute('data-original-text', clickedBtn.textContent);
+        }
+        // Update button text to show selected state
+        clickedBtn.innerHTML = '<i class="fas fa-check-circle"></i> Selected';
+    }
+    
     selectedWorkshop = {
         num: parseInt(workshopNum),
         name: `Workshop ${workshopNum}`,
@@ -666,13 +701,13 @@ document.addEventListener('click', function(e) {
     }
 });
 
-async function handleMasterImportClick(event) {
+async function handleMasterImportClick(event, importType) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
     }
     
-    console.log('Master import button clicked');
+    console.log('Master import button clicked, type:', importType);
     
     if (!selectedWorkshop) {
         showFlashMessage('Please select a workshop!', 'error');
@@ -691,42 +726,73 @@ async function handleMasterImportClick(event) {
     const projectMatchFields = Array.from(document.querySelectorAll('#projectColumnMapping .match-checkbox:checked'))
         .map(cb => cb.dataset.field);
     
-    // Validate
+    // Validate based on import type
     const formRequired = Object.entries(formFields).filter(([key, info]) => info.required).map(([key]) => key);
     const projectRequired = Object.entries(projectFields).filter(([key, info]) => info.required).map(([key]) => key);
     
     const allFormMapped = formRequired.every(key => formColumnMappings[key]);
     const allProjectMapped = projectRequired.every(key => projectColumnMappings[key]);
     
-    if (!allFormMapped || !allProjectMapped) {
-        showFlashMessage('Please map all required fields!', 'error');
+    // Validate form if importing form or both
+    if ((importType === 'form' || importType === 'both') && !allFormMapped) {
+        showFlashMessage('Please map all required form fields!', 'error');
         return false;
     }
     
-    if (mode !== 'create' && (formMatchFields.length === 0 || projectMatchFields.length === 0)) {
-        showFlashMessage('Please select at least one match field for each table!', 'error');
+    // Validate project if importing project or both
+    if ((importType === 'project' || importType === 'both') && !allProjectMapped) {
+        showFlashMessage('Please map all required blog submission fields!', 'error');
         return false;
+    }
+    
+    // Validate match fields
+    if (mode !== 'create') {
+        if ((importType === 'form' || importType === 'both') && formMatchFields.length === 0) {
+            showFlashMessage('Please select at least one match field for form response!', 'error');
+            return false;
+        }
+        if ((importType === 'project' || importType === 'both') && projectMatchFields.length === 0) {
+            showFlashMessage('Please select at least one match field for blog submission!', 'error');
+            return false;
+        }
     }
     
     const importConfig = {
         workshop_num: selectedWorkshop.num,
         workshop_name: selectedWorkshop.name,
         mode: mode,
+        import_type: importType, // 'form', 'project', or 'both'
         form_mappings: formColumnMappings,
         form_match_fields: formMatchFields,
         project_mappings: projectColumnMappings,
         project_match_fields: projectMatchFields,
-        form_sheet_index: selectedWorkshop.form.index,
-        project_sheet_index: selectedWorkshop.project.index
+        form_sheet_index: selectedWorkshop.form ? selectedWorkshop.form.index : null,
+        project_sheet_index: selectedWorkshop.project ? selectedWorkshop.project.index : null
     };
     
     console.log('Master import config:', importConfig);
     
-    const startImportBtn = document.getElementById('startImportBtn');
-    if (startImportBtn) {
-        startImportBtn.disabled = true;
-        const originalHTML = startImportBtn.innerHTML;
-        startImportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+    // Get the clicked button
+    let clickedBtn = null;
+    if (importType === 'form') {
+        clickedBtn = document.getElementById('importFormBtn');
+    } else if (importType === 'project') {
+        clickedBtn = document.getElementById('importProjectBtn');
+    } else {
+        clickedBtn = document.getElementById('importBothBtn');
+    }
+    
+    // Disable all buttons during import
+    const allButtons = [document.getElementById('importFormBtn'), document.getElementById('importProjectBtn'), document.getElementById('importBothBtn')];
+    allButtons.forEach(btn => {
+        if (btn) {
+            btn.disabled = true;
+        }
+    });
+    
+    if (clickedBtn) {
+        const originalHTML = clickedBtn.innerHTML;
+        clickedBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
         
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
@@ -751,7 +817,7 @@ async function handleMasterImportClick(event) {
             console.log('Import result:', result);
             
             if (result.success) {
-                displayMasterResults(result);
+                displayMasterResults(result, importType);
                 const totalErrors = (result.summary?.errors || 0) + (result.errors?.length || 0);
                 if (totalErrors > 0) {
                     showFlashMessage(`Import completed with ${totalErrors} error(s). Check results below.`, 'warning');
@@ -767,15 +833,20 @@ async function handleMasterImportClick(event) {
             console.error('Import error:', error);
             showFlashMessage('Error: ' + error.message, 'error');
         } finally {
-            startImportBtn.disabled = false;
-            startImportBtn.innerHTML = originalHTML;
+            // Re-enable all buttons
+            allButtons.forEach(btn => {
+                if (btn) {
+                    btn.disabled = false;
+                }
+            });
+            clickedBtn.innerHTML = originalHTML;
         }
     }
     
     return false;
 }
 
-function displayMasterResults(result) {
+function displayMasterResults(result, importType) {
     const resultsDiv = document.getElementById('importResults');
     const contentDiv = document.getElementById('resultsContent');
     
@@ -785,7 +856,13 @@ function displayMasterResults(result) {
     let html = `
         <div class="result-summary">
             <h3>Import Summary - ${selectedWorkshop.name}</h3>
+            <p class="import-type-badge">Import Type: ${importType === 'form' ? 'Form Response Only' : importType === 'project' ? 'Blog Submission Only' : 'Both'}</p>
             <div class="summary-grid">
+    `;
+    
+    // Show form results only if form was imported
+    if (importType === 'form' || importType === 'both') {
+        html += `
                 <div class="summary-item">
                     <span class="summary-label">Form Rows Processed</span>
                     <span class="summary-value">${result.summary?.form_rows || 0}</span>
@@ -798,18 +875,28 @@ function displayMasterResults(result) {
                     <span class="summary-label">Form Updated</span>
                     <span class="summary-value text-warning">${result.summary?.form_updated || 0}</span>
                 </div>
+        `;
+    }
+    
+    // Show project results only if project was imported
+    if (importType === 'project' || importType === 'both') {
+        html += `
                 <div class="summary-item">
-                    <span class="summary-label">Project Rows Processed</span>
+                    <span class="summary-label">Blog Submission Rows Processed</span>
                     <span class="summary-value">${result.summary?.project_rows || 0}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">Project Created</span>
+                    <span class="summary-label">Blog Submission Created</span>
                     <span class="summary-value text-success">${result.summary?.project_created || 0}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="summary-label">Project Updated</span>
+                    <span class="summary-label">Blog Submission Updated</span>
                     <span class="summary-value text-warning">${result.summary?.project_updated || 0}</span>
                 </div>
+        `;
+    }
+    
+    html += `
                 <div class="summary-item">
                     <span class="summary-label">Total Errors</span>
                     <span class="summary-value text-danger">${totalErrors}</span>

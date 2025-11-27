@@ -9,6 +9,82 @@
         <a href="{{ url_for('blog_submission_create') }}" class="btn btn-primary">
             <i class="fas fa-plus"></i> New Submission
         </a>
+        <button id="validateBtn" class="btn btn-success" onclick="startValidation()">
+            <i class="fas fa-check-circle"></i> Validate
+        </button>
+    </div>
+
+    <div id="progressContainer" class="validation-progress-container" style="display: none;">
+        <div class="validation-progress-header">
+            <h3><i class="fas fa-sync-alt fa-spin"></i> Validating Blog Submissions</h3>
+            <button id="cancelValidationBtn" class="btn-cancel" onclick="cancelValidation()" style="display: none;">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        </div>
+        
+        <div class="validation-progress-stats">
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Total:</span>
+                <span class="progress-stat-value" id="progressTotal">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Processed:</span>
+                <span class="progress-stat-value" id="progressCurrent">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Valid:</span>
+                <span class="progress-stat-value progress-valid" id="progressValid">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Failed:</span>
+                <span class="progress-stat-value progress-invalid" id="progressFailed">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Updated:</span>
+                <span class="progress-stat-value progress-updated" id="progressUpdated">0</span>
+            </div>
+        </div>
+        
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-container">
+                <div id="progressBar" class="progress-bar-fill" style="width: 0%;">
+                    <span id="progressBarText" class="progress-bar-text">0%</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="validation-status">
+            <p id="progressStatus" class="status-text">
+                <i class="fas fa-spinner fa-spin"></i> Initializing validation...
+            </p>
+        </div>
+        
+        <div id="progressDetails" class="validation-details" style="display: none;">
+            <div class="details-header">
+                <h4><i class="fas fa-list"></i> Processing Details</h4>
+            </div>
+            <div id="progressDetailsList" class="details-list">
+                <!-- Processing items will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Blog Statistics Section -->
+    <div class="blog-statistics-section" id="blogStatisticsSection">
+        <div class="section-header">
+            <h2><i class="fas fa-chart-bar"></i> Blog Statistics by Workshop</h2>
+        </div>
+        <div id="blogStatisticsLoading" class="loading-message">
+            <i class="fas fa-spinner fa-spin"></i> Loading statistics...
+        </div>
+        <div id="blogStatisticsContent" style="display: none;">
+            <div class="statistics-grid" id="statisticsGrid">
+                <!-- Statistics cards will be inserted here -->
+            </div>
+            <div class="statistics-total" id="statisticsTotal">
+                <!-- Total statistics will be inserted here -->
+            </div>
+        </div>
     </div>
 
     <div class="table-container">
@@ -17,32 +93,49 @@
                 <tr>
                     <th>Workshop Name</th>
                     <th>Email</th>
-                    <th>Name</th>
+                    <th>Link</th>
                     <th>Valid</th>
-                    <th>Team ID</th>
+                    <th>Likes</th>
+                    <th>Comments</th>
+                    <th>Reason</th>
                     <th>Created At</th>
                 </tr>
             </thead>
             <tbody>
                 {% if submissions %}
-                    {% for submission in submissions %}
-                    <tr>
-                        <td><strong>{{ submission.workshop_name }}</strong></td>
-                        <td>{{ submission.email }}</td>
-                        <td>{{ submission.name }}</td>
-                        <td>
-                            <span class="badge badge-{% if submission.valid %}success{% else %}danger{% endif %}">
-                                {% if submission.valid %}Valid{% else %}Invalid{% endif %}
-                            </span>
-                        </td>
-                        <td>{{ submission.team_id or '-' }}</td>
-                        <td>{{ submission.created_at.strftime('%Y-%m-%d %H:%M:%S') if submission.created_at else '-' }}</td>
-                    </tr>
-                    {% endfor %}
+                {% for submission in submissions %}
+                <tr>
+                    <td><strong>{{ submission.workshop_name }}</strong></td>
+                    <td>{{ submission.email }}</td>
+                    <td>
+                        {% if submission.project_link %}
+                        <a href="{{ submission.project_link }}" target="_blank" title="{{ submission.project_link }}">
+                            <i class="fas fa-external-link-alt"></i> Link
+                        </a>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge badge-{% if submission.valid %}success{% else %}danger{% endif %}">
+                            {% if submission.valid %}Valid{% else %}Invalid{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="stat-value stat-valid">{{ submission.likes or 0 }}</span>
+                    </td>
+                    <td>
+                        <span class="stat-value stat-info">{{ submission.comments or 0 }}</span>
+                    </td>
+                    <td>{{ submission.validation_reason or '-' }}</td>
+                    <td>{{ submission.created_at.strftime('%Y-%m-%d %H:%M:%S') if submission.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
                 {% else %}
-                    <tr>
-                        <td colspan="6" class="text-center text-muted">No submissions found. <a href="{{ url_for('blog_submission_create') }}">Create one now</a></td>
-                    </tr>
+                <tr>
+                    <td colspan="8" class="text-center text-muted">No submissions found. <a
+                            href="{{ url_for('blog_submission_create') }}">Create one now</a></td>
+                </tr>
                 {% endif %}
             </tbody>
         </table>
@@ -50,3 +143,261 @@
 </div>
 {% endblock %}
 
+{% block scripts %}
+<script>
+    // Load blog statistics on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadBlogStatistics();
+    });
+
+    async function loadBlogStatistics() {
+        const loadingEl = document.getElementById('blogStatisticsLoading');
+        const contentEl = document.getElementById('blogStatisticsContent');
+        const gridEl = document.getElementById('statisticsGrid');
+        const totalEl = document.getElementById('statisticsTotal');
+
+        try {
+            const response = await fetch("{{ url_for('blog_submissions_statistics') }}");
+            const data = await response.json();
+
+            if (data.success) {
+                loadingEl.style.display = 'none';
+                contentEl.style.display = 'block';
+
+                // Render workshop statistics
+                gridEl.innerHTML = '';
+                data.statistics.forEach(stat => {
+                    const card = document.createElement('div');
+                    card.className = 'statistics-card';
+                    card.innerHTML = `
+                        <div class="statistics-card-header">
+                            <h3><i class="fas fa-chalkboard-teacher"></i> ${stat.workshop_name}</h3>
+                        </div>
+                        <div class="statistics-card-body">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Blogs</span>
+                                <span class="stat-value stat-total">${stat.total.toLocaleString()}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Valid</span>
+                                <span class="stat-value stat-valid">${stat.valid.toLocaleString()}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Invalid</span>
+                                <span class="stat-value stat-invalid">${stat.invalid.toLocaleString()}</span>
+                            </div>
+                            <div class="stat-progress">
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-valid" style="width: ${stat.total > 0 ? (stat.valid / stat.total * 100) : 0}%"></div>
+                                    <div class="progress-bar-invalid" style="width: ${stat.total > 0 ? (stat.invalid / stat.total * 100) : 0}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    gridEl.appendChild(card);
+                });
+
+                // Render total statistics
+                totalEl.innerHTML = `
+                    <div class="total-card">
+                        <h3><i class="fas fa-globe"></i> Overall Statistics</h3>
+                        <div class="total-stats">
+                            <div class="total-stat-item">
+                                <span class="total-label">Total Blogs</span>
+                                <span class="total-value">${data.totals.total.toLocaleString()}</span>
+                            </div>
+                            <div class="total-stat-item">
+                                <span class="total-label">Valid</span>
+                                <span class="total-value total-valid">${data.totals.valid.toLocaleString()}</span>
+                            </div>
+                            <div class="total-stat-item">
+                                <span class="total-label">Invalid</span>
+                                <span class="total-value total-invalid">${data.totals.invalid.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                loadingEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error loading statistics';
+                loadingEl.className = 'error-message';
+            }
+        } catch (error) {
+            console.error('Error loading blog statistics:', error);
+            loadingEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error loading statistics';
+            loadingEl.className = 'error-message';
+        }
+    }
+
+    let validationCancelled = false;
+    let validationReader = null;
+
+    function cancelValidation() {
+        validationCancelled = true;
+        if (validationReader) {
+            validationReader.cancel();
+        }
+        const status = document.getElementById('progressStatus');
+        status.innerHTML = '<i class="fas fa-ban"></i> Validation cancelled by user';
+        status.className = 'status-text status-warning';
+        document.getElementById('validateBtn').disabled = false;
+    }
+
+    async function startValidation() {
+        if (!confirm('This will re-validate ALL blog submissions and update likes/comments. This might take a while. Continue?')) {
+            return;
+        }
+
+        validationCancelled = false;
+        const btn = document.getElementById('validateBtn');
+        const container = document.getElementById('progressContainer');
+        const bar = document.getElementById('progressBar');
+        const barText = document.getElementById('progressBarText');
+        const status = document.getElementById('progressStatus');
+        const detailsContainer = document.getElementById('progressDetails');
+        const detailsList = document.getElementById('progressDetailsList');
+        
+        // Reset counters
+        document.getElementById('progressTotal').textContent = '0';
+        document.getElementById('progressCurrent').textContent = '0';
+        document.getElementById('progressValid').textContent = '0';
+        document.getElementById('progressFailed').textContent = '0';
+        document.getElementById('progressUpdated').textContent = '0';
+
+        btn.disabled = true;
+        container.style.display = 'block';
+        detailsContainer.style.display = 'block';
+        detailsList.innerHTML = '';
+        bar.style.width = '0%';
+        barText.textContent = '0%';
+        status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to server...';
+        status.className = 'status-text';
+
+        let validatedCount = 0;
+        let failedCount = 0;
+        let updatedCount = 0;
+
+        try {
+            const response = await fetch("{{ url_for('blog_submissions_validate_stream') }}");
+            validationReader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                if (validationCancelled) break;
+                
+                const { value, done } = await validationReader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (!line.trim() || validationCancelled) continue;
+
+                    try {
+                        const data = JSON.parse(line);
+
+                        if (data.error) {
+                            status.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + data.error;
+                            status.className = 'status-text status-error';
+                            btn.disabled = false;
+                            return;
+                        }
+
+                        // Update total count
+                        if (data.total > 0) {
+                            document.getElementById('progressTotal').textContent = data.total;
+                        }
+
+                        // Update current count
+                        if (data.current !== undefined) {
+                            document.getElementById('progressCurrent').textContent = data.current;
+                        }
+
+                        // Update progress bar
+                        if (data.total > 0 && data.current !== undefined) {
+                            const percent = Math.round((data.current / data.total) * 100);
+                            bar.style.width = percent + '%';
+                            barText.textContent = percent + '%';
+                        }
+
+                        // Update counters in real-time
+                        if (data.validated !== undefined) {
+                            document.getElementById('progressValid').textContent = data.validated;
+                            validatedCount = data.validated;
+                        }
+                        if (data.failed !== undefined) {
+                            document.getElementById('progressFailed').textContent = data.failed;
+                            failedCount = data.failed;
+                        }
+                        if (data.updated !== undefined) {
+                            document.getElementById('progressUpdated').textContent = data.updated;
+                            updatedCount = data.updated;
+                        }
+
+                        // Update status message
+                        if (data.status) {
+                            if (data.status === 'Complete') {
+                                status.innerHTML = '<i class="fas fa-check-circle"></i> ' + (data.summary || 'Validation complete!');
+                                status.className = 'status-text status-success';
+                                bar.classList.add('progress-complete');
+                                
+                                // Parse summary for counts if not already set
+                                if (data.summary && validatedCount === 0 && failedCount === 0) {
+                                    const summaryMatch = data.summary.match(/Validated: (\d+), Failed: (\d+), Updated likes\/comments: (\d+)/);
+                                    if (summaryMatch) {
+                                        validatedCount = parseInt(summaryMatch[1]);
+                                        failedCount = parseInt(summaryMatch[2]);
+                                        updatedCount = parseInt(summaryMatch[3]);
+                                        document.getElementById('progressValid').textContent = validatedCount;
+                                        document.getElementById('progressFailed').textContent = failedCount;
+                                        document.getElementById('progressUpdated').textContent = updatedCount;
+                                    }
+                                }
+                                
+                                setTimeout(() => {
+                                    loadBlogStatistics();
+                                    window.location.reload();
+                                }, 3000);
+                            } else {
+                                status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + data.status;
+                                status.className = 'status-text';
+                                
+                                // Add to details list
+                                if (data.status.includes('Processed')) {
+                                    const detailItem = document.createElement('div');
+                                    detailItem.className = 'detail-item';
+                                    const statusClass = data.status.includes('Likes:') || data.status.includes('Comments:') ? 'detail-success' : 'detail-info';
+                                    detailItem.className = `detail-item ${statusClass}`;
+                                    detailItem.innerHTML = `
+                                        <i class="fas fa-${statusClass === 'detail-success' ? 'check' : 'sync-alt fa-spin'}"></i>
+                                        <span>${data.status}</span>
+                                    `;
+                                    detailsList.appendChild(detailItem);
+                                    
+                                    // Keep only last 10 items
+                                    while (detailsList.children.length > 10) {
+                                        detailsList.removeChild(detailsList.firstChild);
+                                    }
+                                    
+                                    // Auto-scroll to bottom
+                                    detailsList.scrollTop = detailsList.scrollHeight;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing JSON:', e, 'Line:', line);
+                    }
+                }
+            }
+        } catch (e) {
+            if (!validationCancelled) {
+                status.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error: ' + e.message;
+                status.className = 'status-text status-error';
+                btn.disabled = false;
+            }
+        } finally {
+            validationReader = null;
+        }
+    }
+</script>
+{% endblock %}

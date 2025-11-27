@@ -468,14 +468,17 @@ class ProjectSubmission:
         """Create a new project submission"""
         query = """
             INSERT INTO project_submission (
-                workshop_name, email, name, project_link, valid, team_id
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                workshop_name, email, name, project_link, valid, team_id, validation_reason, likes, comments
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
         params = (
             workshop_name, email, name,
             kwargs.get('project_link'),
             kwargs.get('valid', False),
-            kwargs.get('team_id')
+            kwargs.get('team_id'),
+            kwargs.get('validation_reason'),
+            kwargs.get('likes', 0),
+            kwargs.get('comments', 0)
         )
         return db_manager.execute_query(query, params, fetch=False)
     
@@ -534,7 +537,7 @@ class ProjectSubmission:
                     update_query = """
                         UPDATE project_submission SET
                             name = %s, project_link = %s, valid = %s,
-                            team_id = %s, updated_at = CURRENT_TIMESTAMP
+                            team_id = %s, validation_reason = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE workshop_name = %s AND email = %s
                     """
                     cursor.execute(update_query, (
@@ -542,6 +545,7 @@ class ProjectSubmission:
                         record.get('project_link'),
                         record.get('valid', False),
                         record.get('team_id'),
+                        record.get('validation_reason'),
                         record['workshop_name'],
                         record['email']
                     ))
@@ -549,8 +553,8 @@ class ProjectSubmission:
                 else:
                     # Insert
                     insert_query = """
-                        INSERT INTO project_submission (workshop_name, email, name, project_link, valid, team_id)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO project_submission (workshop_name, email, name, project_link, valid, team_id, validation_reason)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """
                     cursor.execute(insert_query, (
                         record['workshop_name'],
@@ -558,7 +562,8 @@ class ProjectSubmission:
                         record.get('name'),
                         record.get('project_link'),
                         record.get('valid', False),
-                        record.get('team_id')
+                        record.get('team_id'),
+                        record.get('validation_reason')
                     ))
                     inserted += cursor.rowcount
             

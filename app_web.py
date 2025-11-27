@@ -1,13 +1,17 @@
 """
 Flask Web Application for AWS AI for Bharat Tracking System
 """
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, session, stream_with_context, Response
 from datetime import datetime, timedelta
 from functools import wraps
 import json
 import os
 import uuid
 from werkzeug.utils import secure_filename
+import requests
+from bs4 import BeautifulSoup
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import (
     db_manager, UserPII, FormResponse, AWSTeamBuilding,
     ProjectSubmission, Verification, MasterLogs,
@@ -733,6 +737,477 @@ def team_building_create():
 # ============================================
 # Routes - Blog Submission (formerly Project Submission)
 # ============================================
+def scrape_blog_metrics(blog_url):
+    """
+    Scrape likes and comments count from a blog URL using Selenium
+    Returns: (likes: int, comments: int, error: str or None, is_404: bool)
+    """
+    likes = 0
+    comments = 0
+    error = None
+    is_404 = False
+    
+    print(f"[DEBUG] scrape_blog_metrics called for: {blog_url}")
+    
+    try:
+        # Use Selenium for builder.aws.com URLs (always JS-rendered)
+        if 'builder.aws.com' in blog_url:
+            print(f"[DEBUG] Detected builder.aws.com URL, using Selenium")
+            try:
+                from selenium import webdriver
+                from selenium.webdriver.chrome.options import Options
+                from selenium.webdriver.chrome.service import Service
+                from selenium.webdriver.common.by import By
+                from selenium.webdriver.support.ui import WebDriverWait
+                from selenium.webdriver.support import expected_conditions as EC
+                from webdriver_manager.chrome import ChromeDriverManager
+                import time
+                
+                print(f"[DEBUG] Selenium imports successful")
+                
+                chrome_options = Options()
+                chrome_options.add_argument('--headless=new')  # Use new headless mode (faster)
+                chrome_options.add_argument('--no-sandbox')
+                chrome_options.add_argument('--disable-dev-shm-usage')
+                chrome_options.add_argument('--disable-gpu')
+                chrome_options.add_argument('--disable-extensions')
+                chrome_options.add_argument('--disable-plugins')
+                chrome_options.add_argument('--disable-background-timer-throttling')
+                chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+                chrome_options.add_argument('--disable-renderer-backgrounding')
+                chrome_options.add_argument('--disable-features=TranslateUI')
+                chrome_options.add_argument('--disable-ipc-flooding-protection')
+                chrome_options.add_argument('--disable-hang-monitor')
+                chrome_options.add_argument('--disable-prompt-on-repost')
+                chrome_options.add_argument('--disable-domain-reliability')
+                chrome_options.add_argument('--disable-component-update')
+                chrome_options.add_argument('--disable-background-networking')
+                chrome_options.add_argument('--disable-sync')
+                chrome_options.add_argument('--disable-default-apps')
+                chrome_options.add_argument('--disable-breakpad')
+                chrome_options.add_argument('--disable-client-side-phishing-detection')
+                chrome_options.add_argument('--disable-crash-reporter')
+                chrome_options.add_argument('--disable-features=AudioServiceOutOfProcess')
+                chrome_options.add_argument('--blink-settings=imagesEnabled=false')  # Disable images
+                chrome_options.page_load_strategy = 'eager'  # Don't wait for all resources
+                
+                # Block images and CSS to speed up loading
+                prefs = {
+                    "profile.managed_default_content_settings.images": 2,  # Block images
+                    "profile.default_content_setting_values.notifications": 2,
+                    "profile.default_content_settings.popups": 0,
+                }
+                chrome_options.add_experimental_option("prefs", prefs)
+                
+                chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                
+                print(f"[DEBUG] Setting up Chrome driver...")
+                # Use webdriver-manager to automatically handle ChromeDriver
+                driver = None
+                try:
+                    # Try with webdriver-manager first
+                    driver_path = ChromeDriverManager().install()
+                    print(f"[DEBUG] ChromeDriverManager returned path: {driver_path}")
+                    
+                    # Fix: webdriver-manager sometimes returns wrong file, find the actual chromedriver.exe
+                    import os
+                    driver_dir = os.path.dirname(driver_path)
+                    actual_driver = None
+                    
+                    # Look for chromedriver.exe in the directory (recursively)
+                    def find_chromedriver(directory):
+                        """Recursively search for chromedriver.exe"""
+                        if not os.path.isdir(directory):
+                            return None
+                        for root, dirs, files in os.walk(directory):
+                            for file in files:
+                                if file == 'chromedriver.exe':
+                                    full_path = os.path.join(root, file)
+                                    # Verify it's actually an executable (check file size > 1MB)
+                                    try:
+                                        if os.path.getsize(full_path) > 1000000:
+                                            return full_path
+                                    except:
+                                        pass
+                        return None
+                    
+                    # Check if ChromeDriver is in a zip file and extract it
+                    import zipfile
+                    zip_files = [f for f in os.listdir(driver_dir) if f.endswith('.zip')]
+                    if zip_files:
+                        zip_path = os.path.join(driver_dir, zip_files[0])
+                        print(f"[DEBUG] Found zip file: {zip_path}, extracting...")
+                        try:
+                            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                                zip_ref.extractall(driver_dir)
+                            print(f"[DEBUG] Extracted ChromeDriver from zip")
+                        except Exception as e:
+                            print(f"[DEBUG] Failed to extract zip: {e}")
+                    
+                    # Search in driver directory and parent
+                    actual_driver = find_chromedriver(driver_dir)
+                    if not actual_driver:
+                        parent_dir = os.path.dirname(driver_dir)
+                        actual_driver = find_chromedriver(parent_dir)
+                    
+                    # Use actual driver if found, otherwise try the original path
+                    if actual_driver and os.path.exists(actual_driver):
+                        driver_path = actual_driver
+                        print(f"[DEBUG] Found actual ChromeDriver at: {driver_path}")
+                    else:
+                        print(f"[DEBUG] Using ChromeDriverManager path: {driver_path}")
+                        # If the path doesn't exist or is wrong, try to find it
+                        if not os.path.exists(driver_path) or driver_path.endswith('.zip') or 'THIRD_PARTY' in driver_path:
+                            # Search more broadly
+                            wdm_base = os.path.expanduser('~/.wdm')
+                            if os.path.isdir(wdm_base):
+                                actual_driver = find_chromedriver(wdm_base)
+                                if actual_driver:
+                                    driver_path = actual_driver
+                                    print(f"[DEBUG] Found ChromeDriver in .wdm: {driver_path}")
+                    
+                    # Verify the file exists
+                    if not os.path.exists(driver_path):
+                        raise Exception(f"ChromeDriver not found at {driver_path}")
+                    
+                    # Check file size (should be > 0)
+                    file_size = os.path.getsize(driver_path)
+                    print(f"[DEBUG] ChromeDriver file size: {file_size:,} bytes")
+                    if file_size < 1000:  # ChromeDriver should be at least 1KB
+                        raise Exception(f"ChromeDriver file appears corrupted (size: {file_size} bytes)")
+                    
+                    service = Service(driver_path)
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print(f"[DEBUG] Chrome driver initialized successfully")
+                except Exception as e:
+                    print(f"[WARNING] webdriver-manager failed: {e}")
+                    # Try without webdriver-manager (if ChromeDriver is in PATH)
+                    try:
+                        print(f"[DEBUG] Trying ChromeDriver from PATH...")
+                        driver = webdriver.Chrome(options=chrome_options)
+                        print(f"[DEBUG] Chrome driver initialized from PATH")
+                    except Exception as e2:
+                        print(f"[ERROR] ChromeDriver from PATH also failed: {e2}")
+                        # Last resort: try to find ChromeDriver in common locations
+                        import shutil
+                        chromedriver_path = shutil.which('chromedriver')
+                        if chromedriver_path:
+                            print(f"[DEBUG] Found chromedriver at: {chromedriver_path}")
+                            service = Service(chromedriver_path)
+                            driver = webdriver.Chrome(service=service, options=chrome_options)
+                            print(f"[DEBUG] Chrome driver initialized from which()")
+                        else:
+                            raise Exception(f"Could not find ChromeDriver. Please install it manually or ensure it's in PATH. Error: {e2}")
+                
+                print(f"[DEBUG] Loading page: {blog_url}")
+                driver.get(blog_url)
+                WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+                print(f"[DEBUG] Page loaded, waiting for dynamic content...")
+                time.sleep(5)  # Wait longer for dynamic content to load
+                print(f"[DEBUG] Dynamic content wait complete")
+                
+                # Save page source for debugging
+                try:
+                    with open('debug_page_source.html', 'w', encoding='utf-8') as f:
+                        f.write(driver.page_source)
+                    print(f"[DEBUG] Saved page source to debug_page_source.html")
+                except:
+                    pass
+                
+                # Check for 404 page
+                page_title = driver.title.lower()
+                page_source = driver.page_source.lower()
+                
+                # Check for 404 indicators
+                if ('404' in page_title or 
+                    'not found' in page_title or 
+                    '404' in page_source[:2000] or 
+                    'page you\'re looking for can\'t be found' in page_source or
+                    'the page you\'re looking for can\'t be found' in page_source):
+                    is_404 = True
+                    error = "404 Not Found"
+                    driver.quit()
+                    return likes, comments, error, is_404
+                
+                # Initialize likes and comments to None (not 0) so we can distinguish between "not found" and "found 0"
+                likes_found = False
+                comments_found = False
+                
+                # Try to find like and comment elements using Selenium
+                print(f"[DEBUG] Searching for like/comment elements on {blog_url}")
+                try:
+                    # Method 1: Find Like button with exact aria-label and extract from _card-action-text span
+                    print(f"[DEBUG] Method 1: Searching for 'Like this article' button...")
+                    like_buttons = driver.find_elements(By.XPATH, "//button[@aria-label='Like this article']")
+                    if not like_buttons:
+                        # Fallback to contains
+                        like_buttons = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Like this article')]")
+                    
+                    print(f"[DEBUG] Found {len(like_buttons)} Like button(s)")
+                    
+                    # Process each button to find the correct one
+                    for btn in like_buttons:
+                        try:
+                            aria_label = btn.get_attribute('aria-label')
+                            print(f"[DEBUG] Like button - aria-label: '{aria_label}'")
+                            
+                            # Priority 1: Find span with class containing '_card-action-text' (the specific span with the count)
+                            action_text_spans = btn.find_elements(By.CSS_SELECTOR, "span[class*='_card-action-text']")
+                            print(f"[DEBUG] Found {len(action_text_spans)} span(s) with '_card-action-text' class")
+                            
+                            for span in action_text_spans:
+                                span_text = span.text.strip()
+                                span_class = span.get_attribute('class') or ''
+                                print(f"[DEBUG] Like action-text span - text: '{span_text}', class: '{span_class}'")
+                                
+                                # Extract number from this span (even if it's 0)
+                                if span_text.isdigit():
+                                    likes = int(span_text)
+                                    likes_found = True
+                                    print(f"[DEBUG] ✓ Extracted likes from _card-action-text span: {likes}")
+                                    break
+                            
+                            # Priority 2: If not found in _card-action-text, check all spans and look for numeric text
+                            if not likes_found:
+                                spans = btn.find_elements(By.TAG_NAME, "span")
+                                print(f"[DEBUG] Checking all {len(spans)} span(s) in Like button")
+                                for span in spans:
+                                    span_text = span.text.strip()
+                                    span_class = span.get_attribute('class') or ''
+                                    print(f"[DEBUG] Like span - text: '{span_text}', class: '{span_class}'")
+                                    
+                                    # Only accept if it's a pure number (not part of a larger string)
+                                    if span_text.isdigit():
+                                        likes = int(span_text)
+                                        likes_found = True
+                                        print(f"[DEBUG] ✓ Extracted likes from span: {likes}")
+                                        break
+                            
+                            # If we found a value (including 0), break
+                            if likes_found:
+                                print(f"[DEBUG] Final likes value: {likes}")
+                                break
+                        except Exception as e:
+                            print(f"[DEBUG] Error processing Like button: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            continue
+                    
+                    # Method 2: Find Comment button with exact aria-label and extract from _card-action-text span
+                    print(f"[DEBUG] Method 2: Searching for 'Comment on this article' button...")
+                    comment_buttons = driver.find_elements(By.XPATH, "//button[@aria-label='Comment on this article']")
+                    if not comment_buttons:
+                        # Fallback to contains
+                        comment_buttons = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Comment on this article')]")
+                    
+                    print(f"[DEBUG] Found {len(comment_buttons)} Comment button(s)")
+                    
+                    # Process each button to find the correct one
+                    for btn in comment_buttons:
+                        try:
+                            aria_label = btn.get_attribute('aria-label')
+                            print(f"[DEBUG] Comment button - aria-label: '{aria_label}'")
+                            
+                            # Priority 1: Find span with class containing '_card-action-text' (the specific span with the count)
+                            action_text_spans = btn.find_elements(By.CSS_SELECTOR, "span[class*='_card-action-text']")
+                            print(f"[DEBUG] Found {len(action_text_spans)} span(s) with '_card-action-text' class")
+                            
+                            for span in action_text_spans:
+                                span_text = span.text.strip()
+                                span_class = span.get_attribute('class') or ''
+                                print(f"[DEBUG] Comment action-text span - text: '{span_text}', class: '{span_class}'")
+                                
+                                # Extract number from this span (even if it's 0)
+                                if span_text.isdigit():
+                                    comments = int(span_text)
+                                    comments_found = True
+                                    print(f"[DEBUG] ✓ Extracted comments from _card-action-text span: {comments}")
+                                    break
+                            
+                            # Priority 2: If not found in _card-action-text, check all spans and look for numeric text
+                            if not comments_found:
+                                spans = btn.find_elements(By.TAG_NAME, "span")
+                                print(f"[DEBUG] Checking all {len(spans)} span(s) in Comment button")
+                                for span in spans:
+                                    span_text = span.text.strip()
+                                    span_class = span.get_attribute('class') or ''
+                                    print(f"[DEBUG] Comment span - text: '{span_text}', class: '{span_class}'")
+                                    
+                                    # Only accept if it's a pure number (not part of a larger string)
+                                    if span_text.isdigit():
+                                        comments = int(span_text)
+                                        comments_found = True
+                                        print(f"[DEBUG] ✓ Extracted comments from span: {comments}")
+                                        break
+                            
+                            # If we found a value (including 0), break
+                            if comments_found:
+                                print(f"[DEBUG] Final comments value: {comments}")
+                                break
+                        except Exception as e:
+                            print(f"[DEBUG] Error processing Comment button: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            continue
+                    
+                    # If we didn't find values, keep them as 0 (default)
+                    if not likes_found:
+                        print(f"[DEBUG] Like button not found or no numeric value extracted, keeping likes=0")
+                    if not comments_found:
+                        print(f"[DEBUG] Comment button not found or no numeric value extracted, keeping comments=0")
+                            
+                except Exception as e:
+                    print(f"[ERROR] Error finding elements: {e}")
+                    import traceback
+                    traceback.print_exc()
+                
+                # Final validation: ensure we only accept values from the correct span
+                print(f"[DEBUG] Final validation - Likes found: {likes_found}, Comments found: {comments_found}")
+                print(f"[DEBUG] Final results before driver.quit(): Likes={likes}, Comments={comments}")
+                
+                # If we didn't find values using Selenium, don't try BeautifulSoup (it's unreliable)
+                # Keep the default 0 values
+                driver.quit()
+                print(f"[DEBUG] Driver closed")
+                
+            except ImportError as e:
+                error = f"Selenium not available. Install with: pip install selenium webdriver-manager. Error: {str(e)}"
+                print(f"[ERROR] {error}")
+                import traceback
+                traceback.print_exc()
+            except Exception as e:
+                error = f"Selenium error: {str(e)}"
+                print(f"[ERROR] Selenium exception: {error}")
+                import traceback
+                traceback.print_exc()
+                try:
+                    driver.quit()
+                except:
+                    pass
+        else:
+            # For community.aws or other sites, use regular requests
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            }
+            
+            response = requests.get(blog_url, headers=headers, timeout=15)
+            
+            # Check for 404
+            if response.status_code == 404:
+                is_404 = True
+                error = "404 Not Found"
+                return likes, comments, error, is_404
+            
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Check for 404 in content
+            page_text = soup.get_text().lower()
+            if '404' in page_text[:1000] or 'not found' in page_text[:1000]:
+                is_404 = True
+                error = "404 Not Found"
+                return likes, comments, error, is_404
+            
+            # Parse likes and comments - prioritize _card-action-text span
+            like_button = soup.find('button', {'aria-label': re.compile(r'Like this article', re.I)})
+            if like_button:
+                # First try to find span with _card-action-text class
+                action_text_span = like_button.find('span', class_=re.compile(r'_card-action-text'))
+                if action_text_span:
+                    text = action_text_span.get_text(strip=True)
+                    if text.isdigit():
+                        likes = int(text)
+                else:
+                    # Fallback to all spans
+                    spans = like_button.find_all('span')
+                    for span in spans:
+                        text = span.get_text(strip=True)
+                        if text.isdigit():
+                            likes = int(text)
+                            break
+            
+            comment_button = soup.find('button', {'aria-label': re.compile(r'Comment on this article', re.I)})
+            if comment_button:
+                # First try to find span with _card-action-text class
+                action_text_span = comment_button.find('span', class_=re.compile(r'_card-action-text'))
+                if action_text_span:
+                    text = action_text_span.get_text(strip=True)
+                    if text.isdigit():
+                        comments = int(text)
+                else:
+                    # Fallback to all spans
+                    spans = comment_button.find_all('span')
+                    for span in spans:
+                        text = span.get_text(strip=True)
+                        if text.isdigit():
+                            comments = int(text)
+                            break
+        
+    except requests.exceptions.Timeout:
+        error = "Request timeout"
+    except requests.exceptions.ConnectionError:
+        error = "Connection error"
+    except requests.exceptions.RequestException as e:
+        if '404' in str(e) or e.response and e.response.status_code == 404:
+            is_404 = True
+            error = "404 Not Found"
+        else:
+            error = f"Request error: {str(e)}"
+    except Exception as e:
+        error = f"Error scraping metrics: {str(e)}"
+    
+    return likes, comments, error, is_404
+
+
+@app.route('/api/blog-submissions/statistics')
+@login_required
+@permission_required('blog_submissions_list')
+def blog_submissions_statistics():
+    """Get blog submission statistics per workshop"""
+    try:
+        query = """
+            SELECT 
+                workshop_name,
+                COUNT(*) as total_count,
+                COUNT(CASE WHEN valid = true THEN 1 END) as valid_count,
+                COUNT(CASE WHEN valid = false OR valid IS NULL THEN 1 END) as invalid_count
+            FROM project_submission
+            GROUP BY workshop_name
+            ORDER BY workshop_name
+        """
+        results = db_manager.execute_query(query)
+        
+        statistics = []
+        total_all = 0
+        valid_all = 0
+        invalid_all = 0
+        
+        for row in results:
+            stats = {
+                'workshop_name': row.get('workshop_name', 'Unknown'),
+                'total': row.get('total_count', 0),
+                'valid': row.get('valid_count', 0),
+                'invalid': row.get('invalid_count', 0)
+            }
+            statistics.append(stats)
+            total_all += stats['total']
+            valid_all += stats['valid']
+            invalid_all += stats['invalid']
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics,
+            'totals': {
+                'total': total_all,
+                'valid': valid_all,
+                'invalid': invalid_all
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
 @app.route('/blog-submissions')
 @login_required
 @permission_required('blog_submissions_list')
@@ -769,6 +1244,223 @@ def blog_submission_create():
     
     users = UserPII.list_all()
     return render_template('project_submission_form.html', submission=None, users=users)
+
+
+def validate_single_submission(submission):
+    """Validate a single blog submission (for parallel processing)
+    Always re-verifies and updates likes/comments even if submission was already valid
+    """
+    link = submission.get('project_link')
+    if not link:
+        return None
+    
+    is_valid = False
+    reason = "Unknown Error"
+    likes = 0
+    comments = 0
+    
+    try:
+        # Check domain
+        if 'community.aws' in link or 'builder.aws.com' in link:
+            print(f"[DEBUG] Validating link: {link}")
+            # Use scrape_blog_metrics which handles Selenium and 404 detection
+            scraped_likes, scraped_comments, scrape_error, is_404 = scrape_blog_metrics(link)
+            
+            print(f"[DEBUG] Scraped results - Likes: {scraped_likes}, Comments: {scraped_comments}, Error: {scrape_error}, Is_404: {is_404}")
+            
+            # Check for 404 first
+            if is_404 or (scrape_error and "404" in scrape_error):
+                is_valid = False
+                reason = "404 Not Found"
+                likes = 0
+                comments = 0
+            else:
+                # Page is valid, use scraped metrics (always update likes/comments)
+                is_valid = True
+                likes = scraped_likes
+                comments = scraped_comments
+                
+                if scrape_error:
+                    reason = f"Verified but {scrape_error}"
+                else:
+                    reason = "Verified"
+                
+                print(f"[DEBUG] Setting - Valid: {is_valid}, Likes: {likes}, Comments: {comments}, Reason: {reason}")
+        else:
+            reason = "Invalid Domain"
+    except Exception as e:
+        print(f"[ERROR] Error validating link {link}: {e}")
+        import traceback
+        traceback.print_exc()
+        reason = f"System Error: {str(e)}"
+    
+    # Always update submission (even if it was already valid) to refresh likes/comments
+    try:
+        ProjectSubmission.update(
+            submission['workshop_name'],
+            submission['email'],
+            valid=is_valid,
+            validation_reason=reason,
+            likes=likes,
+            comments=comments
+        )
+        print(f"[DEBUG] Updated submission - {submission['email']}: Valid={is_valid}, Likes={likes}, Comments={comments}")
+    except Exception as e:
+        print(f"[ERROR] Failed to update submission: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return {
+        'workshop_name': submission['workshop_name'],
+        'email': submission['email'],
+        'link': link,
+        'valid': is_valid,
+        'reason': reason,
+        'likes': likes,
+        'comments': comments
+    }
+
+
+@app.route('/blog-submissions/validate', methods=['POST'])
+@login_required
+@permission_required('blog_submission_create')
+def blog_submissions_validate():
+    """Validate blog submissions with parallel processing - re-verifies ALL submissions to update likes/comments"""
+    try:
+        # Get ALL submissions (not just invalid ones) to re-verify and update likes/comments
+        submissions = ProjectSubmission.list_all()
+        submissions_to_validate = [s for s in submissions if s.get('project_link')]
+        
+        if not submissions_to_validate:
+            flash('No submissions with links to validate.', 'info')
+            return redirect(url_for('blog_submissions_list'))
+        
+        validated_count = 0
+        failed_count = 0
+        updated_count = 0
+        
+        # Use ThreadPoolExecutor with 20 workers for parallel processing (increased for faster validation)
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            # Submit all validation tasks
+            future_to_submission = {
+                executor.submit(validate_single_submission, submission): submission 
+                for submission in submissions_to_validate
+            }
+            
+            # Process results as they complete
+            for future in as_completed(future_to_submission):
+                try:
+                    result = future.result()
+                    if result:
+                        if result['valid']:
+                            validated_count += 1
+                            # Check if likes or comments were updated
+                            if result.get('likes', 0) > 0 or result.get('comments', 0) > 0:
+                                updated_count += 1
+                        else:
+                            failed_count += 1
+                except Exception as e:
+                    print(f"[ERROR] Error processing submission: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    failed_count += 1
+        
+        if validated_count > 0:
+            flash(f'Successfully validated {validated_count} submissions. Updated likes/comments for {updated_count} submissions.', 'success')
+        
+        if failed_count > 0:
+            flash(f'Could not validate {failed_count} submissions. Please check them manually.', 'warning')
+            
+        if validated_count == 0 and failed_count == 0:
+             flash('No submissions were processed.', 'info')
+
+        return redirect(url_for('blog_submissions_list'))
+    except Exception as e:
+        flash(f'Error during validation: {str(e)}', 'error')
+        return redirect(url_for('blog_submissions_list'))
+
+
+@app.route('/api/blog-submissions/validate-stream')
+@login_required
+@permission_required('blog_submission_create')
+def blog_submissions_validate_stream():
+    """Stream validation progress with parallel processing - re-verifies ALL submissions to update likes/comments"""
+    def generate():
+        try:
+            # Get ALL submissions (not just invalid ones) to re-verify and update likes/comments
+            submissions = ProjectSubmission.list_all()
+            submissions_to_validate = [s for s in submissions if s.get('project_link')]
+            total_count = len(submissions_to_validate)
+            
+            if total_count == 0:
+                yield json.dumps({'current': 0, 'total': 0, 'status': 'No submissions with links to validate'}) + '\n'
+                return
+
+            validated_count = 0
+            failed_count = 0
+            processed_count = 0
+            updated_count = 0
+            
+            # Use ThreadPoolExecutor with 10 workers for parallel processing
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Submit all validation tasks
+                future_to_submission = {
+                    executor.submit(validate_single_submission, submission): submission 
+                    for submission in submissions_to_validate
+                }
+                
+                # Process results as they complete
+                for future in as_completed(future_to_submission):
+                    try:
+                        result = future.result()
+                        processed_count += 1
+                        
+                        if result:
+                            if result['valid']:
+                                validated_count += 1
+                                # Check if likes or comments were updated
+                                if result.get('likes', 0) > 0 or result.get('comments', 0) > 0:
+                                    updated_count += 1
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... (Likes: {result.get("likes", 0)}, Comments: {result.get("comments", 0)})'
+                                else:
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            else:
+                                failed_count += 1
+                                status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            
+                            # Yield progress with detailed counts
+                            yield json.dumps({
+                                'current': processed_count,
+                                'total': total_count,
+                                'validated': validated_count,
+                                'failed': failed_count,
+                                'updated': updated_count,
+                                'status': status_msg
+                            }) + '\n'
+                    except Exception as e:
+                        processed_count += 1
+                        failed_count += 1
+                        yield json.dumps({
+                            'current': processed_count,
+                            'total': total_count,
+                            'validated': validated_count,
+                            'failed': failed_count,
+                            'updated': updated_count,
+                            'status': f'Error processing: {str(e)}'
+                        }) + '\n'
+            
+            # Final summary
+            yield json.dumps({
+                'current': total_count,
+                'total': total_count,
+                'status': 'Complete',
+                'summary': f'Validated: {validated_count}, Failed: {failed_count}, Updated likes/comments: {updated_count}'
+            }) + '\n'
+            
+        except Exception as e:
+            yield json.dumps({'error': str(e)}) + '\n'
+
+    return Response(stream_with_context(generate()), mimetype='application/json')
 
 
 # ============================================
@@ -1388,6 +2080,7 @@ def import_master():
         workshop_num = config.get('workshop_num')
         workshop_name = config.get('workshop_name', f'Workshop {workshop_num}')
         import_mode = config.get('mode', 'create')
+        import_type = config.get('import_type', 'both')  # 'form', 'project', or 'both'
         form_mappings = config.get('form_mappings', {})
         form_match_fields = config.get('form_match_fields', [])
         project_mappings = config.get('project_mappings', {})
@@ -1397,6 +2090,10 @@ def import_master():
         
         if workshop_num is None:
             return jsonify({'error': 'No workshop selected', 'success': False}), 400
+        
+        # Validate import_type
+        if import_type not in ['form', 'project', 'both']:
+            return jsonify({'error': 'Invalid import_type. Must be "form", "project", or "both"', 'success': False}), 400
         
         # Save file temporarily
         filename = secure_filename(file.filename)
@@ -1410,14 +2107,14 @@ def import_master():
             
             workbook = read_xlsx_file(file_path)
             
-            # Process Form Response sheet
+            # Process Form Response sheet (only if import_type is 'form' or 'both')
             form_records = []
             form_errors = []
             form_created = 0
             form_updated = 0
             form_skipped = 0
             
-            if form_sheet_index is not None and form_sheet_index < len(workbook.sheetnames):
+            if (import_type == 'form' or import_type == 'both') and form_sheet_index is not None and form_sheet_index < len(workbook.sheetnames):
                 form_sheet = workbook[workbook.sheetnames[form_sheet_index]]
                 form_headers = get_sheet_headers(form_sheet)
                 
@@ -1495,14 +2192,14 @@ def import_master():
                             form_errors.append(f"Form record error: {str(e)}")
                             form_skipped += 1
             
-            # Process Project Submission sheet
+            # Process Project Submission sheet (only if import_type is 'project' or 'both')
             project_records = []
             project_errors = []
             project_created = 0
             project_updated = 0
             project_skipped = 0
             
-            if project_sheet_index is not None and project_sheet_index < len(workbook.sheetnames):
+            if (import_type == 'project' or import_type == 'both') and project_sheet_index is not None and project_sheet_index < len(workbook.sheetnames):
                 project_sheet = workbook[workbook.sheetnames[project_sheet_index]]
                 project_headers = get_sheet_headers(project_sheet)
                 

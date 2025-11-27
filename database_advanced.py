@@ -367,14 +367,16 @@ def bulk_upsert_advanced_project_submission(records: list, mode: str = 'upsert',
                     update_query = f"""
                         UPDATE project_submission SET
                             name = %s, project_link = %s, valid = %s,
-                            team_id = %s, updated_at = CURRENT_TIMESTAMP
+                            team_id = %s, likes = %s, comments = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE {where_clause}
                     """
                     update_values = [
                         record.get('name'),
                         record.get('project_link'),
                         record.get('valid', False),
-                        record.get('team_id')
+                        record.get('team_id'),
+                        record.get('likes', 0),
+                        record.get('comments', 0)
                     ] + match_values
                     cursor.execute(update_query, tuple(update_values))
                     updated += cursor.rowcount
@@ -385,21 +387,23 @@ def bulk_upsert_advanced_project_submission(records: list, mode: str = 'upsert',
                     update_query = f"""
                         UPDATE project_submission SET
                             name = %s, project_link = %s, valid = %s,
-                            team_id = %s, updated_at = CURRENT_TIMESTAMP
+                            team_id = %s, likes = %s, comments = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE {where_clause}
                     """
                     update_values = [
                         record.get('name'),
                         record.get('project_link'),
                         record.get('valid', False),
-                        record.get('team_id')
+                        record.get('team_id'),
+                        record.get('likes', 0),
+                        record.get('comments', 0)
                     ] + match_values
                     cursor.execute(update_query, tuple(update_values))
                     updated += cursor.rowcount
                 else:
                     insert_query = """
-                        INSERT INTO project_submission (workshop_name, email, name, project_link, valid, team_id)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        INSERT INTO project_submission (workshop_name, email, name, project_link, valid, team_id, likes, comments)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """
                     cursor.execute(insert_query, (
                         record.get('workshop_name'),
@@ -407,7 +411,9 @@ def bulk_upsert_advanced_project_submission(records: list, mode: str = 'upsert',
                         record.get('name'),
                         record.get('project_link'),
                         record.get('valid', False),
-                        record.get('team_id')
+                        record.get('team_id'),
+                        record.get('likes', 0),
+                        record.get('comments', 0)
                     ))
                     inserted += cursor.rowcount
         

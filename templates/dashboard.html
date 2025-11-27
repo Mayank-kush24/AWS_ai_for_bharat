@@ -73,7 +73,7 @@
         </div>
         
         <div id="workshopOccupationBreakdown" class="workshop-breakdown-container">
-            <div class="text-center text-muted" style="padding: 2rem;">
+            <div class="text-center text-muted" id="workshopBreakdownLoading" style="padding: 2rem;">
                 <i class="fas fa-spinner fa-spin"></i> Loading occupation breakdown...
             </div>
         </div>
@@ -232,6 +232,9 @@ window.addEventListener('load', function() {
 <script>
 let charts = {};
 
+// Professional Chart.js configuration will be applied per-chart
+// No global defaults to avoid compatibility issues
+
 function escapeHtml(text) {
     if (text === null || text === undefined) return '';
     const div = document.createElement('div');
@@ -335,21 +338,61 @@ function createCharts(data) {
                 }
             });
             
+            const totalGender = genderValues.reduce((a, b) => a + b, 0);
+            
             charts.gender = new Chart(genderCtx.getContext('2d'), {
                 type: 'doughnut',
                 data: {
                     labels: genderLabels,
                     datasets: [{
                         data: genderValues,
-                        backgroundColor: genderColors
+                        backgroundColor: genderColors,
+                        borderWidth: 0,
+                        hoverOffset: 8
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: true,
+                    cutout: '65%',
                     plugins: {
                         legend: {
-                            position: 'bottom'
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                                pointStyle: 'circle',
+                                font: {
+                                    size: 12,
+                                    family: "'Inter', sans-serif"
+                                },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    if (data.labels.length && data.datasets.length) {
+                                        return data.labels.map((label, i) => {
+                                            const value = data.datasets[0].data[i];
+                                            const percentage = ((value / totalGender) * 100).toFixed(1);
+                                            return {
+                                                text: `${label} (${percentage}%)`,
+                                                fillStyle: data.datasets[0].backgroundColor[i],
+                                                hidden: false,
+                                                index: i
+                                            };
+                                        });
+                                    }
+                                    return [];
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed || 0;
+                                    const percentage = ((value / totalGender) * 100).toFixed(1);
+                                    return `${label}: ${value.toLocaleString()} (${percentage}%)`;
+                                }
+                            }
                         }
                     }
                 }
@@ -363,14 +406,20 @@ function createCharts(data) {
     const ageCtx = document.getElementById('ageChart');
     if (ageCtx) {
         if (data.age && Object.keys(data.age).length > 0) {
+            const ageLabels = Object.keys(data.age);
+            const ageValues = Object.values(data.age);
+            
             charts.age = new Chart(ageCtx.getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: Object.keys(data.age),
+                    labels: ageLabels,
                     datasets: [{
                         label: 'Participants',
-                        data: Object.values(data.age),
-                        backgroundColor: '#3B82F6'
+                        data: ageValues,
+                        backgroundColor: '#F79C22',
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        maxBarThickness: 50
                     }]
                 },
                 options: {
@@ -379,11 +428,44 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Participants: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280'
+                            }
                         }
                     }
                 }
@@ -406,7 +488,10 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Count',
                         data: occValues,
-                        backgroundColor: '#10B981'
+                        backgroundColor: '#10B981',
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        maxBarThickness: 35
                     }]
                 },
                 options: {
@@ -416,11 +501,44 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Count: ${context.parsed.x.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         x: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280'
+                            }
                         }
                     }
                 }
@@ -461,8 +579,12 @@ function createCharts(data) {
     const cityCtx = document.getElementById('cityChart');
     if (cityCtx) {
         if (data.city && Object.keys(data.city).length > 0) {
-            const cityLabels = Object.keys(data.city);
-            const cityValues = Object.values(data.city);
+            // Sort cities by value in descending order
+            const cityEntries = Object.entries(data.city);
+            cityEntries.sort((a, b) => b[1] - a[1]); // Sort by value descending
+            
+            const cityLabels = cityEntries.map(entry => entry[0]);
+            const cityValues = cityEntries.map(entry => entry[1]);
             charts.city = new Chart(cityCtx.getContext('2d'), {
                 type: 'bar',
                 data: {
@@ -470,7 +592,10 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Participants',
                         data: cityValues,
-                        backgroundColor: '#8B5CF6'
+                        backgroundColor: '#8B5CF6',
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        maxBarThickness: 40
                     }]
                 },
                 options: {
@@ -479,14 +604,43 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Participants: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
                         },
                         x: {
+                            grid: {
+                                display: false
+                            },
                             ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
                                 maxRotation: 45,
                                 minRotation: 45
                             }
@@ -510,7 +664,10 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Bookings',
                         data: Object.values(data.workshop_bookings),
-                        backgroundColor: '#EC4899'
+                        backgroundColor: '#EC4899',
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        maxBarThickness: 50
                     }]
                 },
                 options: {
@@ -519,11 +676,44 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Bookings: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280'
+                            }
                         }
                     }
                 }
@@ -546,7 +736,10 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Bookings',
                         data: timeSlotValues,
-                        backgroundColor: '#06B6D4'
+                        backgroundColor: '#06B6D4',
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        maxBarThickness: 40
                     }]
                 },
                 options: {
@@ -555,14 +748,43 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Bookings: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
                         },
                         x: {
+                            grid: {
+                                display: false
+                            },
                             ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
                                 maxRotation: 45,
                                 minRotation: 45
                             }
@@ -588,7 +810,10 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Count',
                         data: desigValues,
-                        backgroundColor: '#6366F1'
+                        backgroundColor: '#6366F1',
+                        borderRadius: 6,
+                        borderSkipped: false,
+                        maxBarThickness: 40
                     }]
                 },
                 options: {
@@ -597,14 +822,43 @@ function createCharts(data) {
                     plugins: {
                         legend: {
                             display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Count: ${context.parsed.y.toLocaleString()}`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
                         },
                         x: {
+                            grid: {
+                                display: false
+                            },
                             ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
                                 maxRotation: 45,
                                 minRotation: 45
                             }
@@ -648,12 +902,19 @@ function createCharts(data) {
                     datasets: [{
                         label: 'Registrations',
                         data: regValues,
-                        borderColor: '#3B82F6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        tension: 0.4,
+                        borderColor: '#F79C22',
+                        backgroundColor: 'rgba(247, 156, 34, 0.1)',
+                        borderWidth: 2,
                         fill: true,
+                        tension: 0.4,
                         pointRadius: 3,
-                        pointHoverRadius: 5
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: '#F79C22',
+                        pointBorderColor: '#FFFFFF',
+                        pointBorderWidth: 2,
+                        pointHoverBackgroundColor: '#E68900',
+                        pointHoverBorderColor: '#FFFFFF',
+                        pointHoverBorderWidth: 2
                     }]
                 },
                 options: {
@@ -672,19 +933,45 @@ function createCharts(data) {
                                         return registrationTrendData[index][0];
                                     }
                                     return regLabels[index] || '';
+                                },
+                                label: function(context) {
+                                    return `Registrations: ${context.parsed.y.toLocaleString()}`;
                                 }
                             }
                         }
                     },
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
                         },
                         x: {
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)',
+                                drawBorder: false
+                            },
                             ticks: {
+                                font: {
+                                    size: 11,
+                                    family: "'Inter', sans-serif"
+                                },
+                                color: '#6B7280',
                                 maxRotation: 45,
                                 minRotation: 45,
-                                maxTicksLimit: 30 // Limit number of labels to avoid crowding
+                                maxTicksLimit: 30
                             }
                         }
                     }
@@ -706,11 +993,26 @@ function createCharts(data) {
         breakdownLoading.style.display = 'none';
     }
     
+    console.log('Workshop occupation breakdown data:', data.workshop_occupation_breakdown);
+    
+    // Hide loading indicator
+    const loadingDiv = document.getElementById('workshopBreakdownLoading');
+    if (loadingDiv) {
+        loadingDiv.style.display = 'none';
+    }
+    
     if (data.workshop_occupation_breakdown && data.workshop_occupation_breakdown.length > 0) {
+        console.log('Rendering workshop occupation breakdown with', data.workshop_occupation_breakdown.length, 'items');
         renderWorkshopOccupationBreakdown(data.workshop_occupation_breakdown, currentWorkshopFilter);
     } else {
+        console.log('No workshop occupation breakdown data available');
         const container = document.getElementById('workshopOccupationBreakdown');
         if (container) {
+            // Remove loading message if it exists
+            const loadingDiv = document.getElementById('workshopBreakdownLoading');
+            if (loadingDiv) {
+                loadingDiv.remove();
+            }
             container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">No workshop occupation data available</div>';
         }
     }
@@ -722,8 +1024,14 @@ let currentWorkshopFilter = 'all';
 
 // Render Workshop Occupation Breakdown
 function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
+    console.log('renderWorkshopOccupationBreakdown called with:', data, 'filter:', filterWorkshop);
     const container = document.getElementById('workshopOccupationBreakdown');
-    if (!container) return;
+    if (!container) {
+        console.error('Container not found!');
+        return;
+    }
+    
+    console.log('Container found, processing data...');
     
     // Store full data for filtering
     fullWorkshopBreakdownData = data;
@@ -754,7 +1062,11 @@ function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
         grouped[workshop][timeSlot][item.occupation] = item.count;
     });
     
+    console.log('Grouped data:', grouped);
+    console.log('Number of workshops:', Object.keys(grouped).length);
+    
     if (Object.keys(grouped).length === 0) {
+        console.log('No grouped data, showing empty message');
         container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">No workshop occupation data available for the selected filter</div>';
         return;
     }
@@ -762,14 +1074,18 @@ function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
     // Build HTML for each workshop
     let html = '';
     Object.keys(grouped).sort().forEach(workshop => {
+        console.log('Processing workshop:', workshop);
         const timeSlots = grouped[workshop];
         html += `
-            <div class="workshop-breakdown-card">
-                <div class="workshop-breakdown-header">
-                    <h3><i class="fas fa-graduation-cap"></i> ${escapeHtml(workshop)}</h3>
-                    <span class="badge badge-info">${Object.keys(timeSlots).length} Time Slot${Object.keys(timeSlots).length !== 1 ? 's' : ''}</span>
-                </div>
-                <div class="workshop-time-slots">
+                <div class="workshop-breakdown-card collapsed">
+                    <div class="workshop-breakdown-header" onclick="toggleWorkshopCard(this)">
+                        <h3>
+                            <i class="fas fa-graduation-cap"></i> ${escapeHtml(workshop)}
+                            <i class="fas fa-chevron-down toggle-icon"></i>
+                        </h3>
+                        <span class="badge badge-info">${Object.keys(timeSlots).length} Time Slot${Object.keys(timeSlots).length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="workshop-time-slots collapsed">
         `;
         
         // Sort time slots by date if possible
@@ -808,23 +1124,29 @@ function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
                 .sort((a, b) => b[1] - a[1]); // Sort by count descending
             
             html += `
-                <div class="time-slot-breakdown-card">
-                    <div class="time-slot-breakdown-header">
+                <div class="time-slot-breakdown-card collapsed">
+                    <div class="time-slot-breakdown-header" onclick="toggleTimeSlotBreakdown(this)">
                         <div>
                             <i class="fas fa-clock"></i>
                             <strong>${escapeHtml(timeSlot)}</strong>
+                            <i class="fas fa-chevron-down toggle-icon"></i>
                         </div>
                         <span class="badge badge-primary">${totalCount} responses</span>
                     </div>
-                    <div class="occupation-breakdown">
-                        <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
-                        <div class="occupation-list">
-                            ${sortedOccupations.map(([occupation, count]) => `
-                                <div class="occupation-item">
-                                    <span class="occupation-name">${escapeHtml(occupation)}</span>
-                                    <span class="occupation-count">${count}</span>
-                                </div>
-                            `).join('')}
+                    <div class="occupation-breakdown collapsed">
+                        <div class="occupation-breakdown-header collapsed" onclick="toggleOccupationBreakdown(this)">
+                            <h4><i class="fas fa-chart-pie"></i> Occupation Breakdown</h4>
+                            <i class="fas fa-chevron-down toggle-icon"></i>
+                        </div>
+                        <div class="occupation-breakdown-content collapsed">
+                            <div class="occupation-list">
+                                ${sortedOccupations.map(([occupation, count]) => `
+                                    <div class="occupation-item">
+                                        <span class="occupation-name">${escapeHtml(occupation)}</span>
+                                        <span class="occupation-count">${count}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -837,7 +1159,24 @@ function renderWorkshopOccupationBreakdown(data, filterWorkshop = 'all') {
         `;
     });
     
+    console.log('Generated HTML length:', html.length);
+    console.log('Setting innerHTML...');
+    
+    // Remove loading message if it exists
+    const loadingDiv = document.getElementById('workshopBreakdownLoading');
+    if (loadingDiv) {
+        loadingDiv.remove();
+    }
+    
     container.innerHTML = html;
+    console.log('HTML set successfully. Container children:', container.children.length);
+    
+    // Verify cards are visible
+    const cards = container.querySelectorAll('.workshop-breakdown-card');
+    console.log('Number of workshop cards rendered:', cards.length);
+    cards.forEach((card, index) => {
+        console.log(`Card ${index}:`, card.className, 'visible:', card.offsetHeight > 0);
+    });
 }
 
 // Filter workshop breakdown by workshop number
@@ -851,6 +1190,45 @@ function filterWorkshopBreakdown(workshopNum) {
     // Re-render with filter
     if (fullWorkshopBreakdownData) {
         renderWorkshopOccupationBreakdown(fullWorkshopBreakdownData, workshopNum);
+    }
+}
+
+// Toggle functions for dropdowns
+function toggleWorkshopCard(header) {
+    const card = header.closest('.workshop-breakdown-card');
+    const isExpanded = card.classList.contains('expanded');
+    
+    if (isExpanded) {
+        card.classList.remove('expanded');
+        card.classList.add('collapsed');
+    } else {
+        card.classList.remove('collapsed');
+        card.classList.add('expanded');
+    }
+}
+
+function toggleTimeSlotBreakdown(header) {
+    const card = header.closest('.time-slot-breakdown-card');
+    const isExpanded = card.classList.contains('expanded');
+    
+    if (isExpanded) {
+        card.classList.remove('expanded');
+        card.classList.add('collapsed');
+    } else {
+        card.classList.remove('collapsed');
+        card.classList.add('expanded');
+    }
+}
+
+function toggleOccupationBreakdown(header) {
+    const isExpanded = header.classList.contains('expanded');
+    
+    if (isExpanded) {
+        header.classList.remove('expanded');
+        header.classList.add('collapsed');
+    } else {
+        header.classList.remove('collapsed');
+        header.classList.add('expanded');
     }
 }
 
