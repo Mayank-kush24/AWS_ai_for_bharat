@@ -59,6 +59,23 @@
                 <i class="fas fa-arrow-right"></i> Quick Import
             </a>
         </div>
+
+        <div class="import-option-card">
+            <div class="option-icon">
+                <i class="fas fa-trophy"></i>
+            </div>
+            <h2>Kiro Data Import</h2>
+            <p>Import Kiro Challenge submissions from XLSX files. Auto-detects "Kiro Week X Challenge" sheets.</p>
+            <ul class="feature-list">
+                <li><i class="fas fa-check"></i> Auto-detect Kiro Week sheets</li>
+                <li><i class="fas fa-check"></i> Select week number for import</li>
+                <li><i class="fas fa-check"></i> Column mapping interface</li>
+                <li><i class="fas fa-check"></i> UPSERT support</li>
+            </ul>
+            <a href="{{ url_for('import_kiro_page') }}" class="btn btn-primary btn-block">
+                <i class="fas fa-arrow-right"></i> Import Kiro Data
+            </a>
+        </div>
     </div>
 </div>
 {% endblock %}

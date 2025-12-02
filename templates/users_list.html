@@ -11,6 +11,14 @@
         </a>
     </div>
 
+    <div class="search-container" style="margin-bottom: 1.5rem;">
+        <div class="search-box" style="position: relative; max-width: 500px;">
+            <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none;"></i>
+            <input type="text" id="userSearch" placeholder="Search users by name, email, phone, or country..." 
+                   style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; transition: all 0.2s ease; background-color: #FFFFFF;">
+        </div>
+    </div>
+
     <div class="table-container">
         <table class="data-table">
             <thead>
@@ -23,10 +31,10 @@
                     <th>Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="usersTableBody">
                 {% if users %}
                     {% for user in users %}
-                    <tr>
+                    <tr data-searchable="{{ (user.email or '')|lower }} {{ (user.name or '')|lower }} {{ (user.phone_number or '')|lower }} {{ (user.country or '')|lower }}">
                         <td><strong>{{ user.email }}</strong></td>
                         <td>{{ user.name }}</td>
                         <td>{{ user.phone_number or '-' }}</td>
@@ -51,5 +59,61 @@
         </table>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('userSearch');
+    const tableBody = document.getElementById('usersTableBody');
+    
+    if (!searchInput || !tableBody) return;
+    
+    const allRows = Array.from(tableBody.querySelectorAll('tr'));
+    const userRows = allRows.filter(row => row.hasAttribute('data-searchable'));
+    let noUsersRow = allRows.find(row => row.querySelector('td[colspan]'));
+    
+    // Create "No results" row if it doesn't exist
+    if (!noUsersRow && userRows.length > 0) {
+        noUsersRow = document.createElement('tr');
+        noUsersRow.style.display = 'none';
+        noUsersRow.innerHTML = '<td colspan="6" class="text-center text-muted">No users found matching your search.</td>';
+        tableBody.appendChild(noUsersRow);
+    }
+
+    searchInput.addEventListener('input', function(e) {
+        const searchTerm = e.target.value.toLowerCase().trim();
+        let visibleCount = 0;
+        
+        userRows.forEach(row => {
+            const searchableText = row.getAttribute('data-searchable') || '';
+            if (!searchTerm || searchableText.includes(searchTerm)) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        // Show/hide "No users found" message
+        if (noUsersRow) {
+            if (searchTerm && visibleCount === 0 && userRows.length > 0) {
+                noUsersRow.style.display = '';
+            } else {
+                noUsersRow.style.display = 'none';
+            }
+        }
+    });
+
+    // Add focus styles
+    searchInput.addEventListener('focus', function() {
+        this.style.borderColor = '#F79C22';
+        this.style.boxShadow = '0 0 0 3px rgba(247, 156, 34, 0.1)';
+    });
+
+    searchInput.addEventListener('blur', function() {
+        this.style.borderColor = '#E5E7EB';
+        this.style.boxShadow = 'none';
+    });
+});
+</script>
 {% endblock %}
 

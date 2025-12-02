@@ -30,6 +30,7 @@
                         <li><a href="{{ url_for('workshops_view') }}" class="nav-link"><i class="fas fa-chalkboard-teacher"></i> Workshops</a></li>
                         <li><a href="{{ url_for('team_building_list') }}" class="nav-link"><i class="fas fa-users-cog"></i> Team Building</a></li>
                         <li><a href="{{ url_for('blog_submissions_list') }}" class="nav-link"><i class="fas fa-blog"></i> Blog Submissions</a></li>
+                        <li><a href="{{ url_for('kiro_submissions_list') }}" class="nav-link"><i class="fas fa-trophy"></i> Kiro Submission</a></li>
                         <li><a href="{{ url_for('logs_list') }}" class="nav-link"><i class="fas fa-history"></i> Activity Logs</a></li>
                         <li><a href="{{ url_for('import_page') }}" class="nav-link"><i class="fas fa-file-upload"></i> Import</a></li>
                         <li><a href="{{ url_for('admin_users_list') }}" class="nav-link"><i class="fas fa-users-cog"></i> User Management</a></li>
@@ -49,6 +50,9 @@
                         {% endif %}
                         {% if 'blog_submissions_list' in user_routes %}
                             <li><a href="{{ url_for('blog_submissions_list') }}" class="nav-link"><i class="fas fa-blog"></i> Blog Submissions</a></li>
+                        {% endif %}
+                        {% if 'kiro_submissions_list' in user_routes %}
+                            <li><a href="{{ url_for('kiro_submissions_list') }}" class="nav-link"><i class="fas fa-trophy"></i> Kiro Submission</a></li>
                         {% endif %}
                         {% if 'logs_list' in user_routes %}
                             <li><a href="{{ url_for('logs_list') }}" class="nav-link"><i class="fas fa-history"></i> Activity Logs</a></li>

@@ -89,7 +89,31 @@ CREATE TABLE IF NOT EXISTS verification (
 );
 
 -- ============================================
--- Table 6: Master Logs (Automatic Activity Tracking)
+-- Table 6: Kiro Submission
+-- ============================================
+CREATE TABLE IF NOT EXISTS kiro_submission (
+    week_number INTEGER NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    github_link TEXT,
+    blog_link TEXT,
+    valid BOOLEAN DEFAULT FALSE,
+    validation_reason VARCHAR(255),
+    likes INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0,
+    github_valid BOOLEAN DEFAULT FALSE,
+    github_validation_reason VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (week_number, email),
+    FOREIGN KEY (email) REFERENCES user_pii(email) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- Create index on week_number for faster queries
+CREATE INDEX IF NOT EXISTS idx_kiro_submission_week_number ON kiro_submission(week_number);
+CREATE INDEX IF NOT EXISTS idx_kiro_submission_email ON kiro_submission(email);
+
+-- ============================================
+-- Table 7: Master Logs (Automatic Activity Tracking)
 -- ============================================
 CREATE TABLE IF NOT EXISTS master_logs (
     log_id SERIAL PRIMARY KEY,
@@ -135,6 +159,9 @@ CREATE TRIGGER update_project_submission_updated_at BEFORE UPDATE ON project_sub
 CREATE TRIGGER update_verification_updated_at BEFORE UPDATE ON verification
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_kiro_submission_updated_at BEFORE UPDATE ON kiro_submission
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ============================================
 -- Function: Log activity to master_logs
 -- ============================================
@@ -156,6 +183,16 @@ BEGIN
         record_id := NEW.workshop_name || '|' || NEW.email;
     ELSIF TG_TABLE_NAME = 'verification' THEN
         record_id := NEW.workshop_name || '|' || NEW.email;
+    ELSIF TG_TABLE_NAME = 'kiro_submission' THEN
+        record_id := COALESCE(NEW.week_number::TEXT, 'NULL') || '|' || COALESCE(NEW.email, 'NULL');
+    ELSE
+        -- Fallback for unknown tables
+        record_id := COALESCE(NEW.email, 'unknown') || '|' || TG_TABLE_NAME;
+    END IF;
+
+    -- Safety check: ensure record_id is not null
+    IF record_id IS NULL OR record_id = '' THEN
+        record_id := TG_TABLE_NAME || '|' || 'unknown';
     END IF;
 
     -- Handle INSERT operation
@@ -213,6 +250,15 @@ BEGIN
             record_id := OLD.workshop_name || '|' || OLD.email;
         ELSIF TG_TABLE_NAME = 'verification' THEN
             record_id := OLD.workshop_name || '|' || OLD.email;
+        ELSIF TG_TABLE_NAME = 'kiro_submission' THEN
+            record_id := COALESCE(OLD.week_number::TEXT, 'NULL') || '|' || COALESCE(OLD.email, 'NULL');
+        ELSE
+            record_id := COALESCE(OLD.email, 'unknown') || '|' || TG_TABLE_NAME;
+        END IF;
+        
+        -- Safety check: ensure record_id is not null
+        IF record_id IS NULL OR record_id = '' THEN
+            record_id := TG_TABLE_NAME || '|' || 'unknown';
         END IF;
         
         INSERT INTO master_logs (
@@ -256,5 +302,9 @@ CREATE TRIGGER log_project_submission_activity
 
 CREATE TRIGGER log_verification_activity
     AFTER INSERT OR UPDATE OR DELETE ON verification
+    FOR EACH ROW EXECUTE FUNCTION log_activity();
+
+CREATE TRIGGER log_kiro_submission_activity
+    AFTER INSERT OR UPDATE OR DELETE ON kiro_submission
     FOR EACH ROW EXECUTE FUNCTION log_activity();
 

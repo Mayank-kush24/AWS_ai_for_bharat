@@ -1,0 +1,1083 @@
+{% extends "base.html" %}
+
+{% block title %}Week {{ week_number }} - Kiro Submissions - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-calendar-week"></i> Week {{ week_number }} Submissions</h1>
+        <div class="header-actions">
+            <button id="validateAllBtn" class="btn btn-warning" onclick="startAllValidation()">
+                <i class="fas fa-sync-alt"></i> Validate All
+            </button>
+            <button id="validateBlogBtn" class="btn btn-success" onclick="startBlogValidation()">
+                <i class="fas fa-check-circle"></i> Validate Blogs
+            </button>
+            <button id="validateGithubBtn" class="btn btn-info" onclick="startGithubValidation()">
+                <i class="fab fa-github"></i> Validate GitHub
+            </button>
+            <a href="{{ url_for('kiro_submission_create', week_number=week_number) }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add Submission
+            </a>
+            <a href="{{ url_for('kiro_submissions_list') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left"></i> Back to All Weeks
+            </a>
+        </div>
+    </div>
+
+    <!-- Single Validation Progress Container -->
+    <div id="progressContainer" class="validation-progress-container" style="display: none;">
+        <div class="validation-progress-header">
+            <h3 id="progressTitle"><i class="fas fa-sync-alt fa-spin"></i> Validating Submissions</h3>
+            <button id="cancelValidationBtn" class="btn-cancel" onclick="cancelValidation()" style="display: none;">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        </div>
+        
+        <div class="validation-progress-stats">
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Total:</span>
+                <span class="progress-stat-value" id="progressTotal">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Processed:</span>
+                <span class="progress-stat-value" id="progressCurrent">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Valid:</span>
+                <span class="progress-stat-value progress-valid" id="progressValid">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Failed:</span>
+                <span class="progress-stat-value progress-invalid" id="progressFailed">0</span>
+            </div>
+            <div class="progress-stat-item">
+                <span class="progress-stat-label">Updated:</span>
+                <span class="progress-stat-value progress-updated" id="progressUpdated">0</span>
+            </div>
+        </div>
+        
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-container">
+                <div id="progressBar" class="progress-bar-fill" style="width: 0%;">
+                    <span id="progressBarText" class="progress-bar-text">0%</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="validation-status">
+            <p id="progressStatus" class="status-text">
+                <i class="fas fa-spinner fa-spin"></i> Initializing validation...
+            </p>
+        </div>
+        
+        <div id="progressDetails" class="validation-details" style="display: none;">
+            <div class="details-header">
+                <h4><i class="fas fa-list"></i> Processing Details</h4>
+            </div>
+            <div id="progressDetailsList" class="details-list">
+                <!-- Processing items will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Parallel Validation Progress Container (for Validate All) -->
+    <div id="progressContainerAll" class="validation-progress-container" style="display: none;">
+        <div class="validation-progress-header">
+            <h3><i class="fas fa-sync-alt fa-spin"></i> Validating All Submissions</h3>
+            <button id="cancelAllValidationBtn" class="btn-cancel" onclick="cancelAllValidation()" style="display: none;">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+        </div>
+        
+        <!-- Blog Validation Section -->
+        <div style="margin-bottom: 2rem; padding: 1.5rem; background: #F9FAFB; border-radius: 8px; border-left: 4px solid #10B981;">
+            <h4 style="margin: 0 0 1rem 0; color: #374151; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-blog" style="color: #10B981;"></i> Blog Validation
+            </h4>
+            <div class="validation-progress-stats" style="margin-bottom: 1rem;">
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Total:</span>
+                    <span class="progress-stat-value" id="blogProgressTotal">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Processed:</span>
+                    <span class="progress-stat-value" id="blogProgressCurrent">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Valid:</span>
+                    <span class="progress-stat-value progress-valid" id="blogProgressValid">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Failed:</span>
+                    <span class="progress-stat-value progress-invalid" id="blogProgressFailed">0</span>
+                </div>
+            </div>
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar-container">
+                    <div id="blogProgressBar" class="progress-bar-fill" style="width: 0%; background: #10B981;">
+                        <span id="blogProgressBarText" class="progress-bar-text">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="validation-status">
+                <p id="blogProgressStatus" class="status-text" style="margin-top: 0.5rem;">
+                    <i class="fas fa-spinner fa-spin"></i> Initializing...
+                </p>
+            </div>
+        </div>
+        
+        <!-- GitHub Validation Section -->
+        <div style="padding: 1.5rem; background: #F9FAFB; border-radius: 8px; border-left: 4px solid #3B82F6;">
+            <h4 style="margin: 0 0 1rem 0; color: #374151; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fab fa-github" style="color: #3B82F6;"></i> GitHub Validation
+            </h4>
+            <div class="validation-progress-stats" style="margin-bottom: 1rem;">
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Total:</span>
+                    <span class="progress-stat-value" id="githubProgressTotal">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Processed:</span>
+                    <span class="progress-stat-value" id="githubProgressCurrent">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Valid:</span>
+                    <span class="progress-stat-value progress-valid" id="githubProgressValid">0</span>
+                </div>
+                <div class="progress-stat-item">
+                    <span class="progress-stat-label">Failed:</span>
+                    <span class="progress-stat-value progress-invalid" id="githubProgressFailed">0</span>
+                </div>
+            </div>
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar-container">
+                    <div id="githubProgressBar" class="progress-bar-fill" style="width: 0%; background: #3B82F6;">
+                        <span id="githubProgressBarText" class="progress-bar-text">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="validation-status">
+                <p id="githubProgressStatus" class="status-text" style="margin-top: 0.5rem;">
+                    <i class="fas fa-spinner fa-spin"></i> Initializing...
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kiro Statistics Section -->
+    <div class="blog-statistics-section" id="kiroStatisticsSection" style="margin-bottom: 2rem;">
+        <div class="section-header">
+            <h2><i class="fas fa-chart-bar"></i> Week {{ week_number }} Statistics</h2>
+        </div>
+        <div id="kiroStatisticsLoading" class="loading-message">
+            <i class="fas fa-spinner fa-spin"></i> Loading statistics...
+        </div>
+        <div id="kiroStatisticsContent" style="display: none;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
+                <div class="statistics-total" id="kiroBlogStatistics">
+                    <!-- Blog statistics will be inserted here -->
+                </div>
+                <div class="statistics-total" id="kiroGithubStatistics">
+                    <!-- GitHub statistics will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters and Search Section -->
+    <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
+            <!-- Search Box -->
+            <div style="flex: 1; min-width: 300px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Search</label>
+                <div style="position: relative;">
+                    <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none;"></i>
+                    <input type="text" id="submissionSearch" placeholder="Search by email, name, GitHub link, or blog link..." 
+                           style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; transition: all 0.2s ease; background-color: #FFFFFF;">
+                </div>
+            </div>
+            
+            <!-- GitHub Status Filter -->
+            <div style="min-width: 180px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">GitHub Status</label>
+                <select id="filterGithubStatus" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="valid">Valid</option>
+                    <option value="invalid">Invalid</option>
+                    <option value="not-provided">Not Provided</option>
+                </select>
+            </div>
+            
+            <!-- Blog Status Filter -->
+            <div style="min-width: 180px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Blog Status</label>
+                <select id="filterBlogStatus" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="valid">Valid</option>
+                    <option value="invalid">Invalid</option>
+                    <option value="not-provided">Not Provided</option>
+                </select>
+            </div>
+            
+            <!-- Sort By -->
+            <div style="min-width: 180px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Sort By</label>
+                <select id="sortBy" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="email">Email</option>
+                    <option value="name">Name</option>
+                    <option value="created_at">Created At</option>
+                    <option value="updated_at">Updated At</option>
+                    <option value="likes">Likes</option>
+                    <option value="comments">Comments</option>
+                </select>
+            </div>
+            
+            <!-- Sort Direction -->
+            <div style="min-width: 140px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Order</label>
+                <select id="sortDirection" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                </select>
+            </div>
+            
+            <!-- Clear Filters Button -->
+            <div>
+                <button id="clearFilters" class="btn btn-secondary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
+                    <i class="fas fa-times"></i> Clear
+                </button>
+            </div>
+        </div>
+        
+        <!-- Results Count -->
+        <div id="resultsCount" style="color: #6B7280; font-size: 0.875rem; margin-top: 0.5rem;">
+            Showing all submissions
+        </div>
+    </div>
+
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>GitHub Link</th>
+                    <th>GitHub Valid</th>
+                    <th>GitHub Reason</th>
+                    <th>Blog Link</th>
+                    <th>Blog Valid</th>
+                    <th>Likes</th>
+                    <th>Comments</th>
+                    <th>Blog Reason</th>
+                    <th>Created At</th>
+                    <th>Updated At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="submissionsTableBody">
+                {% if submissions %}
+                {% for submission in submissions %}
+                <tr data-searchable="{{ (submission.email or '')|lower }} {{ (submission.name or '')|lower }} {{ (submission.github_link or '')|lower }} {{ (submission.blog_link or '')|lower }}"
+                    data-github-status="{% if submission.github_link %}{% if submission.github_valid %}valid{% else %}invalid{% endif %}{% else %}not-provided{% endif %}"
+                    data-blog-status="{% if submission.blog_link %}{% if submission.valid %}valid{% else %}invalid{% endif %}{% else %}not-provided{% endif %}"
+                    data-email="{{ (submission.email or '')|lower }}"
+                    data-name="{{ (submission.name or '')|lower }}"
+                    data-created-at="{{ submission.created_at | sortable_date }}"
+                    data-updated-at="{{ submission.updated_at | sortable_date }}"
+                    data-likes="{{ submission.likes or 0 }}"
+                    data-comments="{{ submission.comments or 0 }}">
+                    <td><strong>{{ submission.email }}</strong></td>
+                    <td>{{ submission.name or '-' }}</td>
+                    <td>
+                        {% if submission.github_link %}
+                        <a href="{{ submission.github_link }}" target="_blank" rel="noopener noreferrer">
+                            <i class="fab fa-github"></i> GitHub
+                        </a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.github_link %}
+                        <span class="badge badge-{% if submission.github_valid %}success{% else %}danger{% endif %}">
+                            {% if submission.github_valid %}Valid{% else %}Invalid{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ submission.github_validation_reason or '-' }}</td>
+                    <td>
+                        {% if submission.blog_link %}
+                        <a href="{{ submission.blog_link }}" target="_blank" rel="noopener noreferrer">
+                            <i class="fas fa-blog"></i> Blog
+                        </a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.blog_link %}
+                        <span class="badge badge-{% if submission.valid %}success{% else %}danger{% endif %}">
+                            {% if submission.valid %}Valid{% else %}Invalid{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.blog_link %}
+                        <span class="stat-value stat-valid">{{ submission.likes or 0 }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if submission.blog_link %}
+                        <span class="stat-value stat-info">{{ submission.comments or 0 }}</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ submission.validation_reason or '-' }}</td>
+                    <td>{{ submission.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if submission.created_at else 'N/A' }}</td>
+                    <td>{{ submission.updated_at | format_datetime('%Y-%m-%d %H:%M:%S') if submission.updated_at else 'N/A' }}</td>
+                    <td class="actions">
+                        <a href="{{ url_for('kiro_submission_edit', week_number=week_number, email=submission.email) }}" 
+                           class="btn btn-sm btn-warning" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </a>
+                        <form method="POST" 
+                              action="{{ url_for('kiro_submission_delete', week_number=week_number, email=submission.email) }}" 
+                              style="display: inline;"
+                              onsubmit="return confirm('Are you sure you want to delete this submission?');">
+                            <button type="submit" class="btn btn-sm btn-danger" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="13" class="text-center text-muted">
+                        No submissions found for Week {{ week_number }}. 
+                        <a href="{{ url_for('kiro_submission_create', week_number=week_number) }}">Create one now</a>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load statistics on page load
+    loadKiroStatistics();
+    
+    const searchInput = document.getElementById('submissionSearch');
+    const tableBody = document.getElementById('submissionsTableBody');
+    const filterGithubStatus = document.getElementById('filterGithubStatus');
+    const filterBlogStatus = document.getElementById('filterBlogStatus');
+    const sortBy = document.getElementById('sortBy');
+    const sortDirection = document.getElementById('sortDirection');
+    const clearFiltersBtn = document.getElementById('clearFilters');
+    const resultsCount = document.getElementById('resultsCount');
+    
+    if (!searchInput || !tableBody) return;
+    
+    const allRows = Array.from(tableBody.querySelectorAll('tr'));
+    const submissionRows = allRows.filter(row => row.hasAttribute('data-searchable'));
+    let noResultsRow = allRows.find(row => row.querySelector('td[colspan]'));
+    
+    // Create "No results" row if it doesn't exist
+    if (!noResultsRow && submissionRows.length > 0) {
+        noResultsRow = document.createElement('tr');
+        noResultsRow.style.display = 'none';
+        noResultsRow.innerHTML = '<td colspan="13" class="text-center text-muted">No submissions found matching your filters.</td>';
+        tableBody.appendChild(noResultsRow);
+    }
+
+    // Apply filters and sorting
+    function applyFiltersAndSort() {
+        const searchTerm = (searchInput.value || '').toLowerCase().trim();
+        const githubFilter = filterGithubStatus.value;
+        const blogFilter = filterBlogStatus.value;
+        const sortField = sortBy.value;
+        const sortDir = sortDirection.value;
+        
+        // Filter rows
+        let visibleRows = submissionRows.filter(row => {
+            // Search filter
+            if (searchTerm) {
+                const searchableText = row.getAttribute('data-searchable') || '';
+                if (!searchableText.includes(searchTerm)) {
+                    return false;
+                }
+            }
+            
+            // GitHub status filter
+            if (githubFilter !== 'all') {
+                const githubStatus = row.getAttribute('data-github-status') || '';
+                if (githubStatus !== githubFilter) {
+                    return false;
+                }
+            }
+            
+            // Blog status filter
+            if (blogFilter !== 'all') {
+                const blogStatus = row.getAttribute('data-blog-status') || '';
+                if (blogStatus !== blogFilter) {
+                    return false;
+                }
+            }
+            
+            return true;
+        });
+        
+        // Sort rows
+        visibleRows.sort((a, b) => {
+            let aVal, bVal;
+            
+            switch(sortField) {
+                case 'email':
+                    aVal = a.getAttribute('data-email') || '';
+                    bVal = b.getAttribute('data-email') || '';
+                    break;
+                case 'name':
+                    aVal = a.getAttribute('data-name') || '';
+                    bVal = b.getAttribute('data-name') || '';
+                    break;
+                case 'created_at':
+                    aVal = parseInt(a.getAttribute('data-created-at') || '0');
+                    bVal = parseInt(b.getAttribute('data-created-at') || '0');
+                    break;
+                case 'updated_at':
+                    aVal = parseInt(a.getAttribute('data-updated-at') || '0');
+                    bVal = parseInt(b.getAttribute('data-updated-at') || '0');
+                    break;
+                case 'likes':
+                    aVal = parseInt(a.getAttribute('data-likes') || '0');
+                    bVal = parseInt(b.getAttribute('data-likes') || '0');
+                    break;
+                case 'comments':
+                    aVal = parseInt(a.getAttribute('data-comments') || '0');
+                    bVal = parseInt(b.getAttribute('data-comments') || '0');
+                    break;
+                default:
+                    return 0;
+            }
+            
+            // Compare values
+            let comparison = 0;
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+                comparison = aVal.localeCompare(bVal);
+            } else {
+                comparison = aVal - bVal;
+            }
+            
+            return sortDir === 'asc' ? comparison : -comparison;
+        });
+        
+        // Hide all rows first
+        submissionRows.forEach(row => {
+            row.style.display = 'none';
+        });
+        
+        // Show and reorder visible rows
+        visibleRows.forEach((row, index) => {
+            row.style.display = '';
+            tableBody.insertBefore(row, tableBody.children[index + (noResultsRow ? 1 : 0)]);
+        });
+        
+        // Show/hide "No results" message
+        if (noResultsRow) {
+            if (visibleRows.length === 0 && submissionRows.length > 0) {
+                noResultsRow.style.display = '';
+            } else {
+                noResultsRow.style.display = 'none';
+            }
+        }
+        
+        // Update results count
+        const totalCount = submissionRows.length;
+        const visibleCount = visibleRows.length;
+        if (visibleCount === totalCount) {
+            resultsCount.textContent = `Showing all ${totalCount} submission${totalCount !== 1 ? 's' : ''}`;
+        } else {
+            resultsCount.textContent = `Showing ${visibleCount} of ${totalCount} submission${totalCount !== 1 ? 's' : ''}`;
+        }
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', applyFiltersAndSort);
+    filterGithubStatus.addEventListener('change', applyFiltersAndSort);
+    filterBlogStatus.addEventListener('change', applyFiltersAndSort);
+    sortBy.addEventListener('change', applyFiltersAndSort);
+    sortDirection.addEventListener('change', applyFiltersAndSort);
+    
+    clearFiltersBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        filterGithubStatus.value = 'all';
+        filterBlogStatus.value = 'all';
+        sortBy.value = 'email';
+        sortDirection.value = 'asc';
+        applyFiltersAndSort();
+    });
+
+    // Add focus styles
+    searchInput.addEventListener('focus', function() {
+        this.style.borderColor = '#F79C22';
+        this.style.boxShadow = '0 0 0 3px rgba(247, 156, 34, 0.1)';
+    });
+
+    searchInput.addEventListener('blur', function() {
+        this.style.borderColor = '#E5E7EB';
+        this.style.boxShadow = 'none';
+    });
+    
+    // Initial filter application
+    applyFiltersAndSort();
+});
+
+let validationCancelled = false;
+let validationReader = null;
+let currentValidationType = null; // 'blog', 'github', or 'all'
+
+// For parallel validation
+let allValidationCancelled = false;
+let blogValidationReader = null;
+let githubValidationReader = null;
+
+function cancelValidation() {
+    validationCancelled = true;
+    if (validationReader) {
+        validationReader.cancel();
+    }
+    const status = document.getElementById('progressStatus');
+    status.innerHTML = '<i class="fas fa-ban"></i> Validation cancelled by user';
+    status.className = 'status-text status-warning';
+    if (currentValidationType === 'blog') {
+        document.getElementById('validateBlogBtn').disabled = false;
+    } else if (currentValidationType === 'github') {
+        document.getElementById('validateGithubBtn').disabled = false;
+    }
+}
+
+function cancelAllValidation() {
+    allValidationCancelled = true;
+    if (blogValidationReader) {
+        blogValidationReader.cancel();
+    }
+    if (githubValidationReader) {
+        githubValidationReader.cancel();
+    }
+    document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-ban"></i> Validation cancelled by user';
+    document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-ban"></i> Validation cancelled by user';
+    document.getElementById('validateAllBtn').disabled = false;
+    document.getElementById('validateBlogBtn').disabled = false;
+    document.getElementById('validateGithubBtn').disabled = false;
+}
+
+async function startBlogValidation() {
+    if (!confirm('This will re-validate ALL blog submissions for Week {{ week_number }} and update likes/comments. This might take a while. Continue?')) {
+        return;
+    }
+    currentValidationType = 'blog';
+    document.getElementById('progressContainerAll').style.display = 'none';
+    await startValidation('blog', '{{ url_for("kiro_submissions_validate_stream") }}?week_number={{ week_number }}', 'validateBlogBtn', 'Validating Blog Submissions');
+}
+
+async function startGithubValidation() {
+    if (!confirm('This will validate ALL GitHub repositories for Week {{ week_number }} and check for .kiro/ folders. This might take a while. Continue?')) {
+        return;
+    }
+    currentValidationType = 'github';
+    document.getElementById('progressContainerAll').style.display = 'none';
+    await startValidation('github', '{{ url_for("kiro_submissions_validate_github_stream") }}?week_number={{ week_number }}', 'validateGithubBtn', 'Validating GitHub Repositories');
+}
+
+async function startAllValidation() {
+    if (!confirm('This will validate ALL blog submissions AND GitHub repositories for Week {{ week_number }}. This might take a while. Continue?')) {
+        return;
+    }
+    
+    currentValidationType = 'all';
+    allValidationCancelled = false;
+    
+    // Hide single validation container, show parallel container
+    document.getElementById('progressContainer').style.display = 'none';
+    document.getElementById('progressContainerAll').style.display = 'block';
+    
+    // Disable all buttons
+    document.getElementById('validateAllBtn').disabled = true;
+    document.getElementById('validateBlogBtn').disabled = true;
+    document.getElementById('validateGithubBtn').disabled = true;
+    
+    // Reset progress indicators
+    document.getElementById('blogProgressTotal').textContent = '0';
+    document.getElementById('blogProgressCurrent').textContent = '0';
+    document.getElementById('blogProgressValid').textContent = '0';
+    document.getElementById('blogProgressFailed').textContent = '0';
+    document.getElementById('blogProgressBar').style.width = '0%';
+    document.getElementById('blogProgressBarText').textContent = '0%';
+    document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to server...';
+    
+    document.getElementById('githubProgressTotal').textContent = '0';
+    document.getElementById('githubProgressCurrent').textContent = '0';
+    document.getElementById('githubProgressValid').textContent = '0';
+    document.getElementById('githubProgressFailed').textContent = '0';
+    document.getElementById('githubProgressBar').style.width = '0%';
+    document.getElementById('githubProgressBarText').textContent = '0%';
+    document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to server...';
+    
+    // Start both validations in parallel
+    const blogPromise = handleBlogValidationStream();
+    const githubPromise = handleGithubValidationStream();
+    
+    // Wait for both to complete
+    try {
+        await Promise.all([blogPromise, githubPromise]);
+        
+        // Both completed successfully
+        if (!allValidationCancelled) {
+            document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-check-circle"></i> Blog validation complete!';
+            document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-check-circle"></i> GitHub validation complete!';
+            
+            // Reload statistics and page after a delay
+            setTimeout(() => {
+                loadKiroStatistics();
+                window.location.reload();
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Error in parallel validation:', error);
+    } finally {
+        // Re-enable buttons
+        if (!allValidationCancelled) {
+            document.getElementById('validateAllBtn').disabled = false;
+            document.getElementById('validateBlogBtn').disabled = false;
+            document.getElementById('validateGithubBtn').disabled = false;
+        }
+    }
+}
+
+async function handleBlogValidationStream() {
+    try {
+        const response = await fetch("{{ url_for('kiro_submissions_validate_stream') }}?week_number={{ week_number }}");
+        blogValidationReader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        while (true) {
+            if (allValidationCancelled) break;
+            
+            const { value, done } = await blogValidationReader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+                if (!line.trim() || allValidationCancelled) continue;
+                
+                try {
+                    const data = JSON.parse(line);
+                    
+                    if (data.error) {
+                        document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + data.error;
+                        return;
+                    }
+                    
+                    // Update blog progress
+                    if (data.total > 0) {
+                        document.getElementById('blogProgressTotal').textContent = data.total;
+                    }
+                    if (data.current !== undefined) {
+                        document.getElementById('blogProgressCurrent').textContent = data.current;
+                    }
+                    if (data.total > 0 && data.current !== undefined) {
+                        const percent = Math.round((data.current / data.total) * 100);
+                        document.getElementById('blogProgressBar').style.width = percent + '%';
+                        document.getElementById('blogProgressBarText').textContent = percent + '%';
+                    }
+                    if (data.validated !== undefined) {
+                        document.getElementById('blogProgressValid').textContent = data.validated;
+                    }
+                    if (data.failed !== undefined) {
+                        document.getElementById('blogProgressFailed').textContent = data.failed;
+                    }
+                    if (data.status) {
+                        if (data.status === 'Complete') {
+                            document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-check-circle"></i> ' + (data.summary || 'Validation complete!');
+                            document.getElementById('blogProgressBar').classList.add('progress-complete');
+                        } else {
+                            document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + data.status;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing blog validation JSON:', e);
+                }
+            }
+        }
+    } catch (e) {
+        if (!allValidationCancelled) {
+            document.getElementById('blogProgressStatus').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error: ' + e.message;
+        }
+    } finally {
+        blogValidationReader = null;
+    }
+}
+
+async function handleGithubValidationStream() {
+    try {
+        const response = await fetch("{{ url_for('kiro_submissions_validate_github_stream') }}?week_number={{ week_number }}");
+        githubValidationReader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        while (true) {
+            if (allValidationCancelled) break;
+            
+            const { value, done } = await githubValidationReader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+                if (!line.trim() || allValidationCancelled) continue;
+                
+                try {
+                    const data = JSON.parse(line);
+                    
+                    if (data.error) {
+                        document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + data.error;
+                        return;
+                    }
+                    
+                    // Update GitHub progress
+                    if (data.total > 0) {
+                        document.getElementById('githubProgressTotal').textContent = data.total;
+                    }
+                    if (data.current !== undefined) {
+                        document.getElementById('githubProgressCurrent').textContent = data.current;
+                    }
+                    if (data.total > 0 && data.current !== undefined) {
+                        const percent = Math.round((data.current / data.total) * 100);
+                        document.getElementById('githubProgressBar').style.width = percent + '%';
+                        document.getElementById('githubProgressBarText').textContent = percent + '%';
+                    }
+                    if (data.validated !== undefined) {
+                        document.getElementById('githubProgressValid').textContent = data.validated;
+                    }
+                    if (data.failed !== undefined) {
+                        document.getElementById('githubProgressFailed').textContent = data.failed;
+                    }
+                    if (data.status) {
+                        if (data.status === 'Complete') {
+                            document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-check-circle"></i> ' + (data.summary || 'Validation complete!');
+                            document.getElementById('githubProgressBar').classList.add('progress-complete');
+                        } else {
+                            document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + data.status;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing GitHub validation JSON:', e);
+                }
+            }
+        }
+    } catch (e) {
+        if (!allValidationCancelled) {
+            document.getElementById('githubProgressStatus').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error: ' + e.message;
+        }
+    } finally {
+        githubValidationReader = null;
+    }
+}
+
+async function startValidation(type, url, buttonId, title) {
+
+    validationCancelled = false;
+    const btn = document.getElementById(buttonId);
+    const container = document.getElementById('progressContainer');
+    const progressTitle = document.getElementById('progressTitle');
+    const bar = document.getElementById('progressBar');
+    const barText = document.getElementById('progressBarText');
+    const status = document.getElementById('progressStatus');
+    const detailsContainer = document.getElementById('progressDetails');
+    const detailsList = document.getElementById('progressDetailsList');
+    
+    // Hide parallel validation container
+    document.getElementById('progressContainerAll').style.display = 'none';
+    
+    // Reset counters
+    document.getElementById('progressTotal').textContent = '0';
+    document.getElementById('progressCurrent').textContent = '0';
+    document.getElementById('progressValid').textContent = '0';
+    document.getElementById('progressFailed').textContent = '0';
+    const updatedEl = document.getElementById('progressUpdated');
+    if (updatedEl) {
+        updatedEl.textContent = '0';
+    }
+
+    let validatedCount = 0;
+    let failedCount = 0;
+    let updatedCount = 0;
+
+    btn.disabled = true;
+    progressTitle.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> ${title}`;
+    container.style.display = 'block';
+    detailsContainer.style.display = 'block';
+    detailsList.innerHTML = '';
+    bar.style.width = '0%';
+    barText.textContent = '0%';
+    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to server...';
+    status.className = 'status-text';
+
+    try {
+        const response = await fetch(url);
+        validationReader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            if (validationCancelled) break;
+            
+            const { value, done } = await validationReader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (!line.trim() || validationCancelled) continue;
+
+                try {
+                    const data = JSON.parse(line);
+
+                    if (data.error) {
+                        status.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + data.error;
+                        status.className = 'status-text status-error';
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    // Update total count
+                    if (data.total > 0) {
+                        document.getElementById('progressTotal').textContent = data.total;
+                    }
+
+                    // Update current count
+                    if (data.current !== undefined) {
+                        document.getElementById('progressCurrent').textContent = data.current;
+                    }
+
+                    // Update progress bar
+                    if (data.total > 0 && data.current !== undefined) {
+                        const percent = Math.round((data.current / data.total) * 100);
+                        bar.style.width = percent + '%';
+                        barText.textContent = percent + '%';
+                    }
+
+                    // Update counters in real-time
+                    if (data.validated !== undefined) {
+                        document.getElementById('progressValid').textContent = data.validated;
+                        validatedCount = data.validated;
+                    }
+                    if (data.failed !== undefined) {
+                        document.getElementById('progressFailed').textContent = data.failed;
+                        failedCount = data.failed;
+                    }
+                    if (data.updated !== undefined && updatedEl) {
+                        updatedEl.textContent = data.updated;
+                        updatedCount = data.updated;
+                    }
+
+                    // Update status message
+                    if (data.status) {
+                        if (data.status === 'Complete') {
+                            status.innerHTML = '<i class="fas fa-check-circle"></i> ' + (data.summary || 'Validation complete!');
+                            status.className = 'status-text status-success';
+                            bar.classList.add('progress-complete');
+                            
+                            // Parse summary for counts if not already set
+                            if (data.summary && validatedCount === 0 && failedCount === 0) {
+                                if (type === 'blog') {
+                                    const summaryMatch = data.summary.match(/Validated: (\d+), Failed: (\d+), Updated likes\/comments: (\d+)/);
+                                    if (summaryMatch) {
+                                        validatedCount = parseInt(summaryMatch[1]);
+                                        failedCount = parseInt(summaryMatch[2]);
+                                        updatedCount = parseInt(summaryMatch[3]);
+                                        document.getElementById('progressValid').textContent = validatedCount;
+                                        document.getElementById('progressFailed').textContent = failedCount;
+                                        if (updatedEl) {
+                                            updatedEl.textContent = updatedCount;
+                                        }
+                                    }
+                                } else {
+                                    const summaryMatch = data.summary.match(/Validated: (\d+), Failed: (\d+)/);
+                                    if (summaryMatch) {
+                                        validatedCount = parseInt(summaryMatch[1]);
+                                        failedCount = parseInt(summaryMatch[2]);
+                                        document.getElementById('progressValid').textContent = validatedCount;
+                                        document.getElementById('progressFailed').textContent = failedCount;
+                                    }
+                                }
+                            }
+                            
+                            setTimeout(() => {
+                                loadKiroStatistics();
+                                window.location.reload();
+                            }, 3000);
+                        } else {
+                            status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + data.status;
+                            status.className = 'status-text';
+                            
+                            // Add to details list
+                            if (data.status.includes('Processed')) {
+                                const detailItem = document.createElement('div');
+                                detailItem.className = 'detail-item';
+                                const statusClass = data.status.includes('Likes:') || data.status.includes('Comments:') ? 'detail-success' : 'detail-info';
+                                detailItem.className = `detail-item ${statusClass}`;
+                                detailItem.innerHTML = `
+                                    <i class="fas fa-${statusClass === 'detail-success' ? 'check' : 'sync-alt fa-spin'}"></i>
+                                    <span>${data.status}</span>
+                                `;
+                                detailsList.appendChild(detailItem);
+                                
+                                // Keep only last 10 items
+                                while (detailsList.children.length > 10) {
+                                    detailsList.removeChild(detailsList.firstChild);
+                                }
+                                
+                                // Auto-scroll to bottom
+                                detailsList.scrollTop = detailsList.scrollHeight;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error parsing JSON:', e, 'Line:', line);
+                }
+            }
+        }
+    } catch (e) {
+        if (!validationCancelled) {
+            status.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error: ' + e.message;
+            status.className = 'status-text status-error';
+            btn.disabled = false;
+        }
+    } finally {
+        validationReader = null;
+    }
+}
+
+async function loadKiroStatistics() {
+    const loadingEl = document.getElementById('kiroStatisticsLoading');
+    const contentEl = document.getElementById('kiroStatisticsContent');
+    const blogEl = document.getElementById('kiroBlogStatistics');
+    const githubEl = document.getElementById('kiroGithubStatistics');
+
+    try {
+        const response = await fetch("{{ url_for('kiro_submissions_statistics', week_number=week_number) }}");
+        const data = await response.json();
+
+        if (data.success) {
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'block';
+
+            // Blog statistics
+            const blogTotal = data.blog?.total || 0;
+            const blogValid = data.blog?.valid || 0;
+            const blogInvalid = data.blog?.invalid || 0;
+            const blogValidPercent = blogTotal > 0 ? (blogValid / blogTotal * 100) : 0;
+            const blogInvalidPercent = blogTotal > 0 ? (blogInvalid / blogTotal * 100) : 0;
+
+            blogEl.innerHTML = `
+                <div class="total-card" style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="margin: 0 0 1rem 0; color: #374151; font-size: 1.125rem;">
+                        <i class="fas fa-blog"></i> Blog Submissions
+                    </h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div>
+                            <div style="font-size: 2rem; font-weight: 700; color: #111827; margin-bottom: 0.5rem;">
+                                ${blogTotal.toLocaleString()}
+                            </div>
+                            <div style="display: flex; gap: 1.5rem; margin-top: 0.5rem;">
+                                <div>
+                                    <div style="color: #10B981; font-weight: 600; font-size: 1.25rem;">
+                                        ${blogValid.toLocaleString()}
+                                    </div>
+                                    <div style="color: #6B7280; font-size: 0.875rem;">Valid</div>
+                                </div>
+                                <div>
+                                    <div style="color: #EF4444; font-weight: 600; font-size: 1.25rem;">
+                                        ${blogInvalid.toLocaleString()}
+                                    </div>
+                                    <div style="color: #6B7280; font-size: 0.875rem;">Invalid</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <div style="display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #E5E7EB;">
+                            <div style="background: #10B981; width: ${blogValidPercent}%; transition: width 0.3s ease;"></div>
+                            <div style="background: #EF4444; width: ${blogInvalidPercent}%; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // GitHub statistics
+            const githubTotal = data.github?.total || 0;
+            const githubValid = data.github?.valid || 0;
+            const githubInvalid = data.github?.invalid || 0;
+            const githubValidPercent = githubTotal > 0 ? (githubValid / githubTotal * 100) : 0;
+            const githubInvalidPercent = githubTotal > 0 ? (githubInvalid / githubTotal * 100) : 0;
+
+            githubEl.innerHTML = `
+                <div class="total-card" style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="margin: 0 0 1rem 0; color: #374151; font-size: 1.125rem;">
+                        <i class="fab fa-github"></i> GitHub Repositories
+                    </h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div>
+                            <div style="font-size: 2rem; font-weight: 700; color: #111827; margin-bottom: 0.5rem;">
+                                ${githubTotal.toLocaleString()}
+                            </div>
+                            <div style="display: flex; gap: 1.5rem; margin-top: 0.5rem;">
+                                <div>
+                                    <div style="color: #10B981; font-weight: 600; font-size: 1.25rem;">
+                                        ${githubValid.toLocaleString()}
+                                    </div>
+                                    <div style="color: #6B7280; font-size: 0.875rem;">Valid</div>
+                                </div>
+                                <div>
+                                    <div style="color: #EF4444; font-weight: 600; font-size: 1.25rem;">
+                                        ${githubInvalid.toLocaleString()}
+                                    </div>
+                                    <div style="color: #6B7280; font-size: 0.875rem;">Invalid</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <div style="display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #E5E7EB;">
+                            <div style="background: #10B981; width: ${githubValidPercent}%; transition: width 0.3s ease;"></div>
+                            <div style="background: #EF4444; width: ${githubInvalidPercent}%; transition: width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            loadingEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error loading statistics';
+            loadingEl.className = 'error-message';
+        }
+    } catch (error) {
+        console.error('Error loading kiro statistics:', error);
+        loadingEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error loading statistics';
+        loadingEl.className = 'error-message';
+    }
+}
+</script>
+{% endblock %}
+

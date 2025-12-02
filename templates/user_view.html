@@ -29,7 +29,7 @@
                 <dt>Gender</dt>
                 <dd>{{ user.gender or 'Not provided' }}</dd>
                 <dt>Date of Birth</dt>
-                <dd>{{ user.date_of_birth.strftime('%Y-%m-%d') if user.date_of_birth else 'Not provided' }}</dd>
+                <dd>{{ user.date_of_birth | format_date('%Y-%m-%d') if user.date_of_birth else 'Not provided' }}</dd>
             </dl>
         </div>
 
@@ -65,7 +65,7 @@
             <h2><i class="fas fa-calendar"></i> Registration Details</h2>
             <dl class="detail-list">
                 <dt>Registration Date</dt>
-                <dd>{{ user.registration_date_time.strftime('%Y-%m-%d %H:%M:%S') if user.registration_date_time else 'N/A' }}</dd>
+                <dd>{{ user.registration_date_time | format_datetime('%Y-%m-%d %H:%M:%S') if user.registration_date_time else 'N/A' }}</dd>
                 <dt>Participated in Academy 1.0</dt>
                 <dd>
                     <span class="badge badge-{% if user.participated_in_academy_1_0 %}success{% else %}secondary{% endif %}">
@@ -73,12 +73,183 @@
                     </span>
                 </dd>
                 <dt>Created At</dt>
-                <dd>{{ user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else 'N/A' }}</dd>
+                <dd>{{ user.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if user.created_at else 'N/A' }}</dd>
                 <dt>Updated At</dt>
-                <dd>{{ user.updated_at.strftime('%Y-%m-%d %H:%M:%S') if user.updated_at else 'N/A' }}</dd>
+                <dd>{{ user.updated_at | format_datetime('%Y-%m-%d %H:%M:%S') if user.updated_at else 'N/A' }}</dd>
             </dl>
         </div>
     </div>
+
+    {% if booked_slots %}
+    <div class="dashboard-section">
+        <h2><i class="fas fa-calendar-check"></i> Booked Time Slots</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Workshop/Form</th>
+                        <th>Time Slot</th>
+                        <th>Time Slot Range</th>
+                        <th>Booked At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for slot in booked_slots %}
+                    <tr>
+                        <td>{{ slot.form_name }}</td>
+                        <td>
+                            {% if slot.time_slot %}
+                                {{ slot.time_slot | format_datetime('%Y-%m-%d %H:%M:%S') }}
+                            {% else %}
+                                Not specified
+                            {% endif %}
+                        </td>
+                        <td>{{ slot.time_slot_range or 'Not specified' }}</td>
+                        <td>{{ slot.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if slot.created_at else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if blog_submissions %}
+    <div class="dashboard-section">
+        <h2><i class="fas fa-blog"></i> Blog Submissions</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Workshop</th>
+                        <th>Blog Link</th>
+                        <th>Status</th>
+                        <th>Validation Reason</th>
+                        <th>Likes</th>
+                        <th>Comments</th>
+                        <th>Submitted At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for blog in blog_submissions %}
+                    <tr>
+                        <td>{{ blog.workshop_name }}</td>
+                        <td>
+                            {% if blog.project_link %}
+                                <a href="{{ blog.project_link }}" target="_blank" rel="noopener noreferrer">
+                                    {{ blog.project_link[:50] }}{% if blog.project_link|length > 50 %}...{% endif %}
+                                </a>
+                            {% else %}
+                                Not provided
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge badge-{% if blog.valid %}success{% else %}danger{% endif %}">
+                                {% if blog.valid %}Verified{% else %}Not Verified{% endif %}
+                            </span>
+                        </td>
+                        <td>{{ blog.validation_reason or 'N/A' }}</td>
+                        <td>{{ blog.likes or 0 }}</td>
+                        <td>{{ blog.comments or 0 }}</td>
+                        <td>{{ blog.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if blog.created_at else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if kiro_submissions %}
+    <div class="dashboard-section">
+        <h2><i class="fas fa-calendar-week"></i> Kiro Submissions</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Week</th>
+                        <th>GitHub Link</th>
+                        <th>GitHub Status</th>
+                        <th>GitHub Reason</th>
+                        <th>Blog Link</th>
+                        <th>Blog Status</th>
+                        <th>Likes</th>
+                        <th>Comments</th>
+                        <th>Blog Reason</th>
+                        <th>Submitted At</th>
+                        <th>Updated At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for kiro in kiro_submissions %}
+                    <tr>
+                        <td>
+                            <strong>Week {{ kiro.week_number }}</strong>
+                            <a href="{{ url_for('kiro_submissions_week', week_number=kiro.week_number) }}" class="btn btn-sm btn-info" style="margin-left: 0.5rem;" title="View Week">
+                                <i class="fas fa-external-link-alt"></i>
+                            </a>
+                        </td>
+                        <td>
+                            {% if kiro.github_link %}
+                                <a href="{{ kiro.github_link }}" target="_blank" rel="noopener noreferrer">
+                                    <i class="fab fa-github"></i> GitHub
+                                </a>
+                            {% else %}
+                                <span class="text-muted">Not provided</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if kiro.github_link %}
+                                <span class="badge badge-{% if kiro.github_valid %}success{% else %}danger{% endif %}">
+                                    {% if kiro.github_valid %}Valid{% else %}Invalid{% endif %}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ kiro.github_validation_reason or '-' }}</td>
+                        <td>
+                            {% if kiro.blog_link %}
+                                <a href="{{ kiro.blog_link }}" target="_blank" rel="noopener noreferrer">
+                                    <i class="fas fa-blog"></i> Blog
+                                </a>
+                            {% else %}
+                                <span class="text-muted">Not provided</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if kiro.blog_link %}
+                                <span class="badge badge-{% if kiro.valid %}success{% else %}danger{% endif %}">
+                                    {% if kiro.valid %}Valid{% else %}Invalid{% endif %}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if kiro.blog_link %}
+                                <span class="stat-value stat-valid">{{ kiro.likes or 0 }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if kiro.blog_link %}
+                                <span class="stat-value stat-info">{{ kiro.comments or 0 }}</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ kiro.validation_reason or '-' }}</td>
+                        <td>{{ kiro.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if kiro.created_at else 'N/A' }}</td>
+                        <td>{{ kiro.updated_at | format_datetime('%Y-%m-%d %H:%M:%S') if kiro.updated_at else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
     {% if logs %}
     <div class="dashboard-section">
@@ -95,7 +266,7 @@
                 <tbody>
                     {% for log in logs %}
                     <tr>
-                        <td>{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                        <td>{{ log.timestamp | format_datetime('%Y-%m-%d %H:%M:%S') if log.timestamp else 'N/A' }}</td>
                         <td>
                             <span class="badge badge-{% if log.operation_type == 'INSERT' %}success{% elif log.operation_type == 'UPDATE' %}warning{% else %}danger{% endif %}">
                                 {{ log.operation_type }}

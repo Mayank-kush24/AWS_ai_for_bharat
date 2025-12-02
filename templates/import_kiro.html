@@ -1,0 +1,566 @@
+{% extends "base.html" %}
+
+{% block title %}Kiro Data Import - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="import-advanced-container">
+    <div class="page-header">
+        <h1><i class="fas fa-trophy"></i> Kiro Data Import</h1>
+        <p class="subtitle">Import Kiro Challenge submissions from XLSX files</p>
+        <a href="{{ url_for('import_page') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Import
+        </a>
+    </div>
+
+    <!-- Step 1: File Upload -->
+    <div class="import-step" id="step1">
+        <div class="step-header">
+            <span class="step-number">1</span>
+            <h2>Upload File & Detect Sheets</h2>
+        </div>
+        <div class="step-content">
+            <div class="upload-area" id="fileUploadArea">
+                <input type="file" id="fileInput" accept=".xlsx,.xls" style="display: none;">
+                <div class="upload-content">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drag & drop your XLSX file here</p>
+                    <p class="upload-hint">or click to browse (XLSX, XLS)</p>
+                    <span class="file-name" id="fileName"></span>
+                </div>
+            </div>
+            
+            <div id="sheetSelection" style="display: none; margin-top: 1.5rem;">
+                <button class="btn btn-primary" id="detectSheetsBtn" onclick="detectKiroSheets()" style="margin-bottom: 1rem;">
+                    <i class="fas fa-search"></i> Detect Kiro Sheets
+                </button>
+                
+                <div id="sheetsList" style="display: none; margin-top: 1.5rem;">
+                    <label for="kiroSheetSelect">Select Kiro Week Sheet to Import:</label>
+                    <select id="kiroSheetSelect" class="form-control" onchange="onSheetSelect()">
+                        <option value="">-- Select Sheet --</option>
+                    </select>
+                    <small class="form-text text-muted">Week number will be automatically detected from the sheet name</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Column Mapping -->
+    <div class="import-step" id="step2" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">2</span>
+            <h2>Map Columns</h2>
+        </div>
+        <div class="step-content">
+            <div class="mapping-info" style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;">
+                <p style="margin: 0; color: #1E40AF;">
+                    <i class="fas fa-info-circle"></i> 
+                    <strong>Auto-mapping enabled:</strong> Headers are automatically matched to fields based on common patterns. 
+                    You can adjust the mappings below if needed. Email is required.
+                </p>
+            </div>
+            
+            <div class="import-mode-selection" style="margin-bottom: 1.5rem;">
+                <label>Import Mode:</label>
+                <div class="mode-options">
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="create" checked>
+                        <span>Create Only</span>
+                        <small>Insert new records only</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="upsert">
+                        <span>Create & Update</span>
+                        <small>Insert new or update existing</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="update">
+                        <span>Update Only</span>
+                        <small>Update existing records only</small>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="column-mapping-container" id="columnMapping">
+                <!-- Column mappings will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Preview & Import -->
+    <div class="import-step" id="step3" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">3</span>
+            <h2>Preview & Import</h2>
+        </div>
+        <div class="step-content">
+            <div class="preview-section">
+                <h3>Preview (First 5 Rows)</h3>
+                <div class="preview-table-container" id="previewTable">
+                    <!-- Preview table will be generated here -->
+                </div>
+            </div>
+            
+            <button class="btn btn-primary btn-lg" id="startImportBtn" onclick="startKiroImport()">
+                <i class="fas fa-play"></i> Start Import
+            </button>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="import-results" id="importResults" style="display: none;">
+        <div class="results-header">
+            <h2><i class="fas fa-chart-bar"></i> Import Results</h2>
+            <button class="btn btn-secondary" onclick="resetImport()">
+                <i class="fas fa-redo"></i> New Import
+            </button>
+        </div>
+        <div class="results-content" id="resultsContent">
+            <!-- Results will be displayed here -->
+        </div>
+    </div>
+</div>
+
+<script>
+let fileData = null;
+let columnMappings = {};
+let fileColumns = [];
+let selectedSheetIndex = null;
+let selectedWeekNumber = null;
+let importMode = 'create'; // Default to create only
+
+// Kiro submission field definitions
+const kiroFields = {
+    email: { 
+        label: 'Email (Required)', 
+        required: true, 
+        patterns: ['email', 'leader email', 'user email', 'e-mail', 'e mail', 'mail', 'email address', 'email id'] 
+    },
+    github_link: { 
+        label: 'GitHub Link', 
+        required: false, 
+        patterns: ['github', 'github link', 'github repository', 'repo', 'repository', 'github repo', 'git', 'github url'] 
+    },
+    blog_link: { 
+        label: 'Blog Link', 
+        required: false, 
+        patterns: ['blog', 'blog link', 'aws builder', 'builder center', 'blog url', 'blog post', 'article', 'technical blog'] 
+    },
+    created_at: { 
+        label: 'Created At', 
+        required: false, 
+        patterns: ['created', 'created at', 'created date', 'date created', 'created on', 'created time', 'submitted at', 'submitted date'] 
+    },
+    updated_at: { 
+        label: 'Updated At', 
+        required: false, 
+        patterns: ['updated', 'updated at', 'updated date', 'date updated', 'modified', 'modified at', 'modified date', 'last updated', 'last modified'] 
+    }
+};
+
+// Auto-map headers to fields based on patterns
+function autoMapHeaders(headers) {
+    const mappings = {};
+    const usedHeaders = new Set();
+    
+    // Normalize header names for matching
+    const normalize = (str) => str.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '');
+    
+    // For each field, find the best matching header
+    Object.keys(kiroFields).forEach(field => {
+        const fieldInfo = kiroFields[field];
+        if (!fieldInfo.patterns) return;
+        
+        let bestMatch = null;
+        let bestScore = 0;
+        
+        headers.forEach(header => {
+            if (usedHeaders.has(header)) return;
+            
+            const normalizedHeader = normalize(header);
+            fieldInfo.patterns.forEach(pattern => {
+                if (normalizedHeader.includes(pattern)) {
+                    const score = pattern.length; // Longer patterns score higher
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = header;
+                    }
+                }
+            });
+        });
+        
+        if (bestMatch) {
+            mappings[field] = bestMatch;
+            usedHeaders.add(bestMatch);
+        }
+    });
+    
+    return mappings;
+}
+
+const fileInput = document.getElementById('fileInput');
+const fileUploadArea = document.getElementById('fileUploadArea');
+const fileName = document.getElementById('fileName');
+
+fileUploadArea.addEventListener('click', () => fileInput.click());
+fileUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.add('drag-over');
+});
+fileUploadArea.addEventListener('dragleave', () => {
+    fileUploadArea.classList.remove('drag-over');
+});
+fileUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        handleFileSelect();
+    }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect() {
+    if (fileInput.files && fileInput.files[0]) {
+        fileName.textContent = fileInput.files[0].name;
+        fileData = fileInput.files[0];
+        document.getElementById('sheetSelection').style.display = 'block';
+    }
+}
+
+async function detectKiroSheets() {
+    if (!fileData) {
+        alert('Please select a file first');
+        return;
+    }
+    
+    const btn = document.getElementById('detectSheetsBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Detecting...';
+    
+    const formData = new FormData();
+    formData.append('file', fileData);
+    
+    try {
+        const response = await fetch('/api/import/kiro/detect-sheets', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const select = document.getElementById('kiroSheetSelect');
+            select.innerHTML = '<option value="">-- Select Sheet --</option>';
+            
+            if (data.sheets.length === 0) {
+                alert('No Kiro Week sheets found. Sheets must match pattern "Kiro Week X Challenge"');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-search"></i> Detect Kiro Sheets';
+                return;
+            }
+            
+            data.sheets.forEach(sheet => {
+                const option = document.createElement('option');
+                option.value = sheet.index;
+                option.textContent = `${sheet.name} (Week ${sheet.week_number})`;
+                option.dataset.weekNumber = sheet.week_number;
+                select.appendChild(option);
+            });
+            
+            // Show the sheets list
+            document.getElementById('sheetsList').style.display = 'block';
+            
+            // Auto-select first sheet if only one
+            if (data.sheets.length === 1) {
+                select.value = data.sheets[0].index;
+                onSheetSelect();
+            }
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error detecting sheets: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-search"></i> Detect Kiro Sheets';
+    }
+}
+
+function onSheetSelect() {
+    const select = document.getElementById('kiroSheetSelect');
+    if (select.value && select.selectedOptions[0]) {
+        selectedSheetIndex = parseInt(select.value);
+        selectedWeekNumber = parseInt(select.selectedOptions[0].dataset.weekNumber);
+        loadPreview();
+    }
+}
+
+async function loadPreview() {
+    if (!fileData || selectedSheetIndex === null || !selectedWeekNumber) {
+        alert('Please select a sheet');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', fileData);
+    formData.append('sheet_index', selectedSheetIndex);
+    formData.append('week_number', selectedWeekNumber);
+    
+    try {
+        const response = await fetch('/api/import/kiro/preview', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            fileColumns = data.headers;
+            showColumnMapping(data.headers, data.sample_data);
+            document.getElementById('step2').style.display = 'block';
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error loading preview: ' + error.message);
+    }
+}
+
+function showColumnMapping(headers, sampleData) {
+    const container = document.getElementById('columnMapping');
+    container.innerHTML = '';
+    
+    // Auto-map headers
+    const autoMappings = autoMapHeaders(headers);
+    columnMappings = { ...autoMappings }; // Initialize with auto-mappings
+    
+    // Create mapping table
+    const table = document.createElement('table');
+    table.className = 'mapping-table';
+    table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.marginTop = '1rem';
+    table.style.background = 'white';
+    table.style.borderRadius = '8px';
+    table.style.overflow = 'hidden';
+    table.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+    
+    // Header row
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr style="background: #F9FAFB; border-bottom: 2px solid #E5E7EB;">
+            <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #374151;">Database Field</th>
+            <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #374151;">Maps To</th>
+            <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #374151;">File Column</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    // Body rows
+    const tbody = document.createElement('tbody');
+    Object.keys(kiroFields).forEach(dbField => {
+        const field = kiroFields[dbField];
+        const mappedHeader = autoMappings[dbField] || '';
+        
+        const row = document.createElement('tr');
+        row.style.borderBottom = '1px solid #E5E7EB';
+        if (mappedHeader) {
+            row.style.background = '#F0FDF4'; // Light green for auto-mapped
+        }
+        row.innerHTML = `
+            <td style="padding: 0.75rem; vertical-align: middle; width: 30%;">
+                <strong>${field.label}</strong>
+                ${field.required ? '<span class="required" style="color: #EF4444; margin-left: 4px;">*</span>' : ''}
+            </td>
+            <td style="padding: 0.75rem; vertical-align: middle; width: 10%; text-align: center;">
+                <i class="fas fa-arrow-right" style="color: #6B7280;"></i>
+            </td>
+            <td style="padding: 0.75rem; vertical-align: middle; width: 60%;">
+                <select id="map_${dbField}" 
+                        class="form-control" 
+                        onchange="updateMapping('${dbField}', this.value)"
+                        style="min-width: 100%;">
+                    <option value="">-- Select Column --</option>
+                    ${headers.map((h, idx) => 
+                        `<option value="${h}" ${h === mappedHeader ? 'selected' : ''}>${h}</option>`
+                    ).join('')}
+                </select>
+                ${mappedHeader ? `<small style="color: #10B981; display: block; margin-top: 0.25rem;">
+                    <i class="fas fa-check-circle"></i> Auto-mapped
+                </small>` : ''}
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    
+    container.appendChild(table);
+    
+    // Show preview
+    showPreviewTable(sampleData);
+    document.getElementById('step3').style.display = 'block';
+}
+
+function updateMapping(dbField, fileColumn) {
+    columnMappings[dbField] = fileColumn;
+}
+
+function showPreviewTable(sampleData) {
+    const container = document.getElementById('previewTable');
+    if (!sampleData || sampleData.length === 0) {
+        container.innerHTML = '<p>No preview data available</p>';
+        return;
+    }
+    
+    const headers = Object.keys(sampleData[0]);
+    let html = '<table class="data-table"><thead><tr>';
+    headers.forEach(h => html += `<th>${h}</th>`);
+    html += '</tr></thead><tbody>';
+    
+    sampleData.forEach(row => {
+        html += '<tr>';
+        headers.forEach(h => html += `<td>${row[h] || ''}</td>`);
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+async function startKiroImport() {
+    if (!fileData || selectedSheetIndex === null || !selectedWeekNumber) {
+        alert('Please complete all steps');
+        return;
+    }
+    
+    // Validate required mappings
+    if (!columnMappings.email) {
+        alert('Please map the email field');
+        return;
+    }
+    
+    // Get selected import mode
+    const modeRadio = document.querySelector('input[name="importMode"]:checked');
+    importMode = modeRadio ? modeRadio.value : 'create';
+    
+    const btn = document.getElementById('startImportBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+    
+    const formData = new FormData();
+    formData.append('file', fileData);
+    formData.append('config', JSON.stringify({
+        sheet_index: selectedSheetIndex,
+        week_number: selectedWeekNumber,
+        mappings: columnMappings,
+        mode: importMode
+    }));
+    
+    try {
+        const response = await fetch('/api/import/kiro/process', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showResults(data);
+        } else {
+            alert('Import failed: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error during import: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-play"></i> Start Import';
+    }
+}
+
+function showResults(data) {
+    const container = document.getElementById('resultsContent');
+    const mode = data.mode || importMode || 'upsert';
+    const modeLabel = mode === 'create' ? 'Created' : mode === 'update' ? 'Updated' : 'Created/Updated';
+    const totalSuccess = (data.created || 0) + (data.updated || 0);
+    const hasErrors = data.errors && data.errors.length > 0;
+    
+    container.innerHTML = `
+        <div class="result-summary">
+            <div class="result-item ${totalSuccess > 0 ? 'success' : 'warning'}">
+                <i class="fas fa-${totalSuccess > 0 ? 'check-circle' : 'exclamation-triangle'}"></i>
+                <span>${modeLabel}: ${totalSuccess}</span>
+            </div>
+            ${mode === 'upsert' ? `
+            <div class="result-item">
+                <i class="fas fa-plus-circle"></i>
+                <span>New Records: ${data.created || 0}</span>
+            </div>
+            <div class="result-item">
+                <i class="fas fa-edit"></i>
+                <span>Updated Records: ${data.updated || 0}</span>
+            </div>
+            ` : ''}
+            <div class="result-item">
+                <i class="fas fa-info-circle"></i>
+                <span>Skipped: ${data.skipped || 0}</span>
+            </div>
+            <div class="result-item">
+                <i class="fas fa-list"></i>
+                <span>Total Rows Processed: ${data.total || 0}</span>
+            </div>
+            ${data.valid_records !== undefined ? `
+            <div class="result-item">
+                <i class="fas fa-check"></i>
+                <span>Valid Records: ${data.valid_records}</span>
+            </div>
+            ` : ''}
+        </div>
+        ${hasErrors ? `
+            <div class="result-errors" style="margin-top: 1.5rem; padding: 1rem; background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px;">
+                <h4 style="color: #DC2626; margin-bottom: 0.5rem;">
+                    <i class="fas fa-exclamation-circle"></i> 
+                    Errors (${data.error_count || data.errors.length}):
+                </h4>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <ul style="margin: 0; padding-left: 1.5rem; color: #991B1B;">
+                        ${data.errors.map(e => `<li style="margin-bottom: 0.25rem;">${e}</li>`).join('')}
+                    </ul>
+                </div>
+                ${data.errors.length > 50 ? `
+                <p style="margin-top: 0.5rem; color: #991B1B; font-size: 0.875rem;">
+                    <i class="fas fa-info-circle"></i> Showing all ${data.errors.length} errors. 
+                    ${totalSuccess === 0 ? 'No records were imported. Please check the errors above.' : ''}
+                </p>
+                ` : ''}
+            </div>
+        ` : totalSuccess === 0 ? `
+            <div class="result-warning" style="margin-top: 1.5rem; padding: 1rem; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px;">
+                <p style="color: #92400E; margin: 0;">
+                    <i class="fas fa-exclamation-triangle"></i> 
+                    No records were imported. This might be because:
+                    <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
+                        <li>All records already exist (if using "Create Only" mode)</li>
+                        <li>No records exist to update (if using "Update Only" mode)</li>
+                        <li>All records were skipped due to validation errors</li>
+                    </ul>
+                </p>
+            </div>
+        ` : ''}
+    `;
+    document.getElementById('importResults').style.display = 'block';
+    
+    // Scroll to results
+    document.getElementById('importResults').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetImport() {
+    location.reload();
+}
+
+// Sheet selection is handled by onSheetSelect() function
+</script>
+{% endblock %}
+

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}{% if submission %}Edit{% else %}Create{% endif %} Kiro Submission - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="page-header">
+        <h1><i class="fas fa-trophy"></i> {% if submission %}Edit{% else %}Create{% endif %} Kiro Submission</h1>
+        <a href="{% if submission %}{{ url_for('kiro_submissions_week', week_number=submission.week_number) }}{% else %}{{ url_for('kiro_submissions_list') }}{% endif %}" 
+           class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back
+        </a>
+    </div>
+
+    <form method="POST" class="form">
+        <div class="form-group">
+            <label for="week_number">Week Number <span class="required">*</span></label>
+            <select id="week_number" name="week_number" required class="form-control" {% if submission %}disabled{% endif %}>
+                <option value="">-- Select Week --</option>
+                {% for week in existing_weeks %}
+                <option value="{{ week }}" 
+                        {% if submission and submission.week_number == week %}selected
+                        {% elif week_number and week_number == week %}selected{% endif %}>
+                    Week {{ week }}
+                </option>
+                {% endfor %}
+            </select>
+            {% if submission %}
+            <input type="hidden" name="week_number" value="{{ submission.week_number }}">
+            {% endif %}
+            <small class="form-text text-muted">
+                {% if submission %}Week cannot be changed{% else %}Weeks are automatically created when importing data. If no weeks are available, import data first.{% endif %}
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label for="email">User Email <span class="required">*</span></label>
+            <select id="email" name="email" required class="form-control" {% if submission %}disabled{% endif %}>
+                <option value="">Select User</option>
+                {% for user in users %}
+                <option value="{{ user.email }}" 
+                        {% if submission and submission.email == user.email %}selected{% endif %}>
+                    {{ user.email }} - {{ user.name }}
+                </option>
+                {% endfor %}
+            </select>
+            {% if submission %}
+            <input type="hidden" name="email" value="{{ submission.email }}">
+            {% endif %}
+            <small class="form-text text-muted">{% if submission %}Email cannot be changed{% else %}Select the user for this submission{% endif %}</small>
+        </div>
+
+        <div class="form-group">
+            <label for="github_link">GitHub Link</label>
+            <input type="url" id="github_link" name="github_link" 
+                   value="{% if submission %}{{ submission.github_link or '' }}{% endif %}" 
+                   class="form-control" placeholder="https://github.com/...">
+        </div>
+
+        <div class="form-group">
+            <label for="blog_link">Blog Link</label>
+            <input type="url" id="blog_link" name="blog_link" 
+                   value="{% if submission %}{{ submission.blog_link or '' }}{% endif %}" 
+                   class="form-control" placeholder="https://...">
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save"></i> {% if submission %}Update{% else %}Create{% endif %} Submission
+            </button>
+            <a href="{% if submission %}{{ url_for('kiro_submissions_week', week_number=submission.week_number) }}{% else %}{{ url_for('kiro_submissions_list') }}{% endif %}" 
+               class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

@@ -632,6 +632,260 @@ class Verification:
         return db_manager.execute_query(query)
 
 
+class KiroSubmission:
+    """Model for Kiro Submission table"""
+    
+    @staticmethod
+    def create(week_number: int, email: str, **kwargs):
+        """Create a new kiro submission"""
+        query = """
+            INSERT INTO kiro_submission (week_number, email, github_link, blog_link)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (week_number, email) DO UPDATE SET
+                github_link = EXCLUDED.github_link,
+                blog_link = EXCLUDED.blog_link,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING week_number, email
+        """
+        params = (
+            week_number,
+            email,
+            kwargs.get('github_link'),
+            kwargs.get('blog_link')
+        )
+        result = db_manager.execute_query(query, params)
+        return result[0] if result else None
+    
+    @staticmethod
+    def get(week_number: int, email: str):
+        """Get kiro submission by week_number and email"""
+        query = "SELECT * FROM kiro_submission WHERE week_number = %s AND email = %s"
+        result = db_manager.execute_query(query, (week_number, email))
+        return result[0] if result else None
+    
+    @staticmethod
+    def update(week_number: int, email: str, **kwargs):
+        """Update kiro submission"""
+        set_clauses = []
+        params = []
+        
+        for key, value in kwargs.items():
+            if value is not None:
+                set_clauses.append(f"{key} = %s")
+                params.append(value)
+        
+        if not set_clauses:
+            return 0
+        
+        params.extend([week_number, email])
+        query = f"UPDATE kiro_submission SET {', '.join(set_clauses)} WHERE week_number = %s AND email = %s"
+        return db_manager.execute_query(query, tuple(params), fetch=False)
+    
+    @staticmethod
+    def delete(week_number: int, email: str):
+        """Delete kiro submission"""
+        query = "DELETE FROM kiro_submission WHERE week_number = %s AND email = %s"
+        return db_manager.execute_query(query, (week_number, email), fetch=False)
+    
+    @staticmethod
+    def get_by_week(week_number: int):
+        """Get all submissions for a specific week"""
+        query = """
+            SELECT ks.*, u.name, u.phone_number, u.country
+            FROM kiro_submission ks
+            LEFT JOIN user_pii u ON ks.email = u.email
+            WHERE ks.week_number = %s
+            ORDER BY ks.created_at DESC
+        """
+        return db_manager.execute_query(query, (week_number,))
+    
+    @staticmethod
+    def get_by_email(email: str):
+        """Get all submissions for a specific email"""
+        query = """
+            SELECT * FROM kiro_submission
+            WHERE email = %s
+            ORDER BY week_number ASC
+        """
+        return db_manager.execute_query(query, (email,))
+    
+    @staticmethod
+    def list_all():
+        """Get all kiro submissions"""
+        query = """
+            SELECT ks.*, u.name
+            FROM kiro_submission ks
+            LEFT JOIN user_pii u ON ks.email = u.email
+            ORDER BY ks.week_number DESC, ks.created_at DESC
+        """
+        return db_manager.execute_query(query)
+    
+    @staticmethod
+    def get_weeks():
+        """Get list of all unique week numbers"""
+        query = "SELECT DISTINCT week_number FROM kiro_submission ORDER BY week_number ASC"
+        result = db_manager.execute_query(query)
+        return [row['week_number'] for row in result] if result else []
+    
+    @staticmethod
+    def bulk_upsert(records: list, mode: str = 'upsert'):
+        """Bulk upsert kiro submission records
+        
+        Args:
+            records: List of records to import
+            mode: 'create' (insert only), 'update' (update only), or 'upsert' (insert or update)
+        
+        Returns:
+            dict with 'inserted' and 'updated' counts
+        """
+        if not records:
+            return {'inserted': 0, 'updated': 0}
+        
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        try:
+            inserted = 0
+            updated = 0
+            
+            if mode == 'create':
+                # Create only - skip if exists
+                query = """
+                    INSERT INTO kiro_submission (week_number, email, github_link, blog_link, created_at, updated_at, valid, validation_reason, likes, comments)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (week_number, email) DO NOTHING
+                """
+                for record in records:
+                    try:
+                        cursor.execute(query, (
+                            record.get('week_number'),
+                            record.get('email'),
+                            record.get('github_link'),
+                            record.get('blog_link'),
+                            record.get('created_at'),  # Will use default if None
+                            record.get('updated_at'),   # Will use default if None
+                            record.get('valid', False),
+                            record.get('validation_reason'),
+                            record.get('likes', 0),
+                            record.get('comments', 0)
+                        ))
+                        if cursor.rowcount > 0:
+                            inserted += 1
+                    except Exception as e:
+                        error_msg = f"Error inserting record (week={record.get('week_number')}, email={record.get('email')}): {str(e)}"
+                        print(error_msg)
+                        raise Exception(error_msg)  # Re-raise to be caught by caller
+                        
+            elif mode == 'update':
+                # Update only - skip if doesn't exist
+                # Build dynamic UPDATE query based on what fields are provided
+                for record in records:
+                    try:
+                        set_clauses = []
+                        params = []
+                        
+                        if record.get('github_link') is not None:
+                            set_clauses.append("github_link = %s")
+                            params.append(record.get('github_link'))
+                        
+                        if record.get('blog_link') is not None:
+                            set_clauses.append("blog_link = %s")
+                            params.append(record.get('blog_link'))
+                        
+                        if record.get('valid') is not None:
+                            set_clauses.append("valid = %s")
+                            params.append(record.get('valid'))
+                        
+                        if record.get('validation_reason') is not None:
+                            set_clauses.append("validation_reason = %s")
+                            params.append(record.get('validation_reason'))
+                        
+                        if record.get('likes') is not None:
+                            set_clauses.append("likes = %s")
+                            params.append(record.get('likes'))
+                        
+                        if record.get('comments') is not None:
+                            set_clauses.append("comments = %s")
+                            params.append(record.get('comments'))
+                        
+                        if record.get('updated_at') is not None:
+                            set_clauses.append("updated_at = %s")
+                            params.append(record.get('updated_at'))
+                        else:
+                            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                        
+                        if not set_clauses:
+                            continue
+                        
+                        params.extend([record.get('week_number'), record.get('email')])
+                        query = f"""
+                            UPDATE kiro_submission
+                            SET {', '.join(set_clauses)}
+                            WHERE week_number = %s AND email = %s
+                        """
+                        cursor.execute(query, tuple(params))
+                        if cursor.rowcount > 0:
+                            updated += 1
+                    except Exception as e:
+                        print(f"Error updating record {record}: {e}")
+                        continue
+                        
+            else:  # mode == 'upsert'
+                # Create or update - check if exists first to count properly
+                check_query = "SELECT 1 FROM kiro_submission WHERE week_number = %s AND email = %s"
+                query = """
+                    INSERT INTO kiro_submission (week_number, email, github_link, blog_link, created_at, updated_at, valid, validation_reason, likes, comments)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (week_number, email) DO UPDATE SET
+                        github_link = EXCLUDED.github_link,
+                        blog_link = EXCLUDED.blog_link,
+                        updated_at = COALESCE(EXCLUDED.updated_at, CURRENT_TIMESTAMP),
+                        valid = COALESCE(EXCLUDED.valid, kiro_submission.valid),
+                        validation_reason = COALESCE(EXCLUDED.validation_reason, kiro_submission.validation_reason),
+                        likes = COALESCE(EXCLUDED.likes, kiro_submission.likes),
+                        comments = COALESCE(EXCLUDED.comments, kiro_submission.comments)
+                """
+                for record in records:
+                    try:
+                        # Check if record exists before insert
+                        cursor.execute(check_query, (
+                            record.get('week_number'),
+                            record.get('email')
+                        ))
+                        exists = cursor.fetchone() is not None
+                        
+                        # Perform insert/update
+                        cursor.execute(query, (
+                            record.get('week_number'),
+                            record.get('email'),
+                            record.get('github_link'),
+                            record.get('blog_link'),
+                            record.get('created_at'),  # Will use default if None
+                            record.get('updated_at'),   # Will use default if None
+                            record.get('valid', False),
+                            record.get('validation_reason'),
+                            record.get('likes', 0),
+                            record.get('comments', 0)
+                        ))
+                        
+                        # Count based on whether it existed before
+                        if exists:
+                            updated += 1
+                        else:
+                            inserted += 1
+                    except Exception as e:
+                        error_msg = f"Error upserting record (week={record.get('week_number')}, email={record.get('email')}): {str(e)}"
+                        print(error_msg)
+                        raise Exception(error_msg)  # Re-raise to be caught by caller
+            
+            conn.commit()
+            return {'inserted': inserted, 'updated': updated}
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            db_manager.return_connection(conn)
+
+
 class MasterLogs:
     """Model for Master Logs table (read-only queries)"""
     

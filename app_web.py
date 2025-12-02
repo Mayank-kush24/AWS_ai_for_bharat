@@ -14,7 +14,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import (
     db_manager, UserPII, FormResponse, AWSTeamBuilding,
-    ProjectSubmission, Verification, MasterLogs,
+    ProjectSubmission, Verification, MasterLogs, KiroSubmission,
     RBACUser, RBACPermission, RBACUserPermission
 )
 from import_utils import parse_master_workbook, parse_user_pii_workbook
@@ -40,6 +40,86 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# Jinja2 template filters
+@app.template_filter('format_datetime')
+def format_datetime(value, format='%Y-%m-%d %H:%M:%S'):
+    """Format datetime value, handling both datetime objects and strings"""
+    if not value:
+        return 'N/A'
+    
+    # If it's already a datetime object, use strftime
+    if hasattr(value, 'strftime'):
+        try:
+            return value.strftime(format)
+        except (AttributeError, ValueError):
+            pass
+    
+    # If it's a string, try to parse and reformat it
+    if isinstance(value, str):
+        try:
+            # Try common datetime formats
+            formats_to_try = [
+                '%Y-%m-%d %H:%M:%S.%f',
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S.%f',
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d',
+                '%Y-%m-%d %H:%M',
+            ]
+            for fmt in formats_to_try:
+                try:
+                    dt = datetime.strptime(value, fmt)
+                    return dt.strftime(format)
+                except ValueError:
+                    continue
+            # If parsing fails, return the string as-is (might already be formatted)
+            return value
+        except Exception:
+            return value
+    
+    # Fallback: convert to string
+    return str(value)
+
+@app.template_filter('format_date')
+def format_date(value, format='%Y-%m-%d'):
+    """Format date value, handling both date/datetime objects and strings"""
+    return format_datetime(value, format)
+
+@app.template_filter('sortable_date')
+def sortable_date(value):
+    """Convert date to sortable format (YYYYMMDDHHMMSS)"""
+    if not value:
+        return '0'
+    
+    # If it's a datetime object
+    if hasattr(value, 'strftime'):
+        try:
+            return value.strftime('%Y%m%d%H%M%S')
+        except:
+            return '0'
+    
+    # If it's a string, try to parse it
+    if isinstance(value, str):
+        try:
+            formats_to_try = [
+                '%Y-%m-%d %H:%M:%S.%f',
+                '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S.%f',
+                '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d',
+                '%Y-%m-%d %H:%M',
+            ]
+            for fmt in formats_to_try:
+                try:
+                    dt = datetime.strptime(value, fmt)
+                    return dt.strftime('%Y%m%d%H%M%S')
+                except ValueError:
+                    continue
+        except:
+            pass
+    
+    return '0'
 
 # Initialize database connection on startup
 @app.before_request
@@ -483,7 +563,28 @@ def user_view(email):
         # Get activity logs for this user
         logs = MasterLogs.get_by_record('user_pii', email)
         
-        return render_template('user_view.html', user=user, logs=logs)
+        # Get booked time slots (form responses)
+        booked_slots = FormResponse.get_by_email(email)
+        
+        # Get blog submissions (project submissions) for this user
+        query = "SELECT * FROM project_submission WHERE email = %s ORDER BY created_at DESC"
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, (email,))
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        db_manager.return_connection(conn)
+        user_blog_submissions = [dict(zip(columns, row)) for row in rows]
+        
+        # Get Kiro submissions for this user
+        kiro_submissions = KiroSubmission.get_by_email(email)
+        
+        return render_template('user_view.html', 
+                             user=user, 
+                             logs=logs,
+                             booked_slots=booked_slots,
+                             blog_submissions=user_blog_submissions,
+                             kiro_submissions=kiro_submissions)
     except Exception as e:
         flash(f'Error loading user: {str(e)}', 'error')
         return redirect(url_for('users_list'))
@@ -626,19 +727,25 @@ def export_workshop_data(workshop_num):
         time_slot_filter = request.args.get('time_slot', None)
         
         # Query form responses
+        # Use time_slot_range for filtering since it stores the display string like "29 Nov, 4:00 - 7:00 PM"
         if time_slot_filter and time_slot_filter != 'No Time Slot':
+            # URL decode the time_slot_filter in case it's encoded
+            from urllib.parse import unquote
+            time_slot_filter = unquote(time_slot_filter)
+            
             query = """
-                SELECT fr.email, fr.form_name, fr.name, fr.time_slot, fr.created_at,
+                SELECT fr.email, fr.form_name, fr.name, fr.time_slot, fr.time_slot_range, fr.created_at,
                        u.name as user_name, u.phone_number, u.designation, u.occupation, u.linkedin
                 FROM form_response fr
                 LEFT JOIN user_pii u ON fr.email = u.email
-                WHERE fr.form_name = %s AND fr.time_slot::text = %s
+                WHERE fr.form_name = %s 
+                  AND fr.time_slot_range = %s
                 ORDER BY fr.time_slot, fr.created_at
             """
             params = (workshop_name, time_slot_filter)
         else:
             query = """
-                SELECT fr.email, fr.form_name, fr.name, fr.time_slot, fr.created_at,
+                SELECT fr.email, fr.form_name, fr.name, fr.time_slot, fr.time_slot_range, fr.created_at,
                        u.name as user_name, u.phone_number, u.designation, u.occupation, u.linkedin
                 FROM form_response fr
                 LEFT JOIN user_pii u ON fr.email = u.email
@@ -653,6 +760,12 @@ def export_workshop_data(workshop_num):
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
         db_manager.return_connection(conn)
+        
+        # Debug: Log query results
+        print(f"[DEBUG] Export query returned {len(rows)} rows")
+        print(f"[DEBUG] Columns: {columns}")
+        if rows:
+            print(f"[DEBUG] First row sample: {rows[0]}")
         
         # Create CSV
         output = io.StringIO()
@@ -672,21 +785,24 @@ def export_workshop_data(workshop_num):
                     row_data.append(str(val) if val is not None else '')
             writer.writerow(row_data)
         
+        csv_content = output.getvalue()
+        print(f"[DEBUG] CSV content length: {len(csv_content)} characters")
+        print(f"[DEBUG] CSV preview (first 500 chars): {csv_content[:500]}")
+        
         # Create response
         filename = f'workshop_{workshop_num}'
         if time_slot_filter and time_slot_filter != 'No Time Slot':
             # Sanitize time_slot for filename
-            safe_time_slot = time_slot_filter.replace(' ', '_').replace(':', '-')[:20]
+            safe_time_slot = time_slot_filter.replace(' ', '_').replace(':', '-').replace(',', '').replace('/', '-')[:20]
             filename += f'_{safe_time_slot}'
         filename += '.csv'
         
-        response = Response(
-            output.getvalue(),
-            mimetype='text/csv',
-            headers={
-                'Content-Disposition': f'attachment; filename={filename}'
-            }
-        )
+        # Use make_response to avoid duplicate headers
+        from flask import make_response
+        response = make_response(output.getvalue())
+        response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+        # Properly quote filename to handle special characters
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         
         return response
     
@@ -1466,6 +1582,711 @@ def blog_submissions_validate_stream():
 # ============================================
 # Routes - Verification (Removed)
 # ============================================
+
+# ============================================
+# Routes - Kiro Submission
+# ============================================
+
+@app.route('/kiro-submissions')
+@login_required
+@permission_required('kiro_submissions_list')
+def kiro_submissions_list():
+    """List all Kiro submissions grouped by week"""
+    try:
+        weeks = KiroSubmission.get_weeks()
+        weeks_data = []
+        for week in weeks:
+            submissions = KiroSubmission.get_by_week(week)
+            weeks_data.append({
+                'week_number': week,
+                'submissions': submissions,
+                'count': len(submissions)
+            })
+        return render_template('kiro_submissions_list.html', weeks_data=weeks_data)
+    except Exception as e:
+        flash(f'Error loading Kiro submissions: {str(e)}', 'error')
+        return render_template('kiro_submissions_list.html', weeks_data=[])
+
+
+@app.route('/kiro-submissions/week/<int:week_number>')
+@login_required
+@permission_required('kiro_submissions_list')
+def kiro_submissions_week(week_number):
+    """View submissions for a specific week"""
+    try:
+        submissions = KiroSubmission.get_by_week(week_number)
+        return render_template('kiro_submissions_week.html', 
+                             week_number=week_number, 
+                             submissions=submissions)
+    except Exception as e:
+        flash(f'Error loading week {week_number} submissions: {str(e)}', 'error')
+        return redirect(url_for('kiro_submissions_list'))
+
+
+@app.route('/kiro-submissions/create', methods=['GET', 'POST'])
+@login_required
+@permission_required('kiro_submission_create')
+def kiro_submission_create():
+    """Create or edit Kiro submission"""
+    week_number = request.args.get('week_number', type=int)
+    email = request.args.get('email')
+    
+    if request.method == 'POST':
+        try:
+            data = request.form
+            week_num = int(data.get('week_number'))
+            email_addr = data.get('email')
+            
+            KiroSubmission.create(
+                week_number=week_num,
+                email=email_addr,
+                github_link=data.get('github_link') or None,
+                blog_link=data.get('blog_link') or None
+            )
+            flash('Kiro submission saved successfully!', 'success')
+            return redirect(url_for('kiro_submissions_week', week_number=week_num))
+        except Exception as e:
+            flash(f'Error saving submission: {str(e)}', 'error')
+    
+    # GET request - show form
+    users = UserPII.list_all()
+    submission = None
+    if week_number and email:
+        submission = KiroSubmission.get(week_number, email)
+    
+    # Get existing weeks from database
+    existing_weeks = KiroSubmission.get_weeks()
+    
+    return render_template('kiro_submission_form.html', 
+                         submission=submission,
+                         week_number=week_number,
+                         users=users,
+                         existing_weeks=existing_weeks)
+
+
+@app.route('/kiro-submissions/edit/<int:week_number>/<email>')
+@login_required
+@permission_required('kiro_submission_create')
+def kiro_submission_edit(week_number, email):
+    """Edit Kiro submission"""
+    try:
+        submission = KiroSubmission.get(week_number, email)
+        if not submission:
+            flash('Submission not found', 'error')
+            return redirect(url_for('kiro_submissions_list'))
+        
+        users = UserPII.list_all()
+        existing_weeks = KiroSubmission.get_weeks()
+        return render_template('kiro_submission_form.html',
+                             submission=submission,
+                             week_number=week_number,
+                             users=users,
+                             existing_weeks=existing_weeks)
+    except Exception as e:
+        flash(f'Error loading submission: {str(e)}', 'error')
+        return redirect(url_for('kiro_submissions_list'))
+
+
+@app.route('/kiro-submissions/delete/<int:week_number>/<email>', methods=['POST'])
+@login_required
+@permission_required('kiro_submission_create')
+def kiro_submission_delete(week_number, email):
+    """Delete Kiro submission"""
+    try:
+        KiroSubmission.delete(week_number, email)
+        flash('Submission deleted successfully!', 'success')
+        return redirect(url_for('kiro_submissions_week', week_number=week_number))
+    except Exception as e:
+        flash(f'Error deleting submission: {str(e)}', 'error')
+        return redirect(url_for('kiro_submissions_week', week_number=week_number))
+
+
+def verify_github_repo(github_url, max_retries=3):
+    """
+    Verify GitHub repository and check for .kiro/ folder
+    Handles rate limits with retry logic and exponential backoff
+    Returns: (is_valid: bool, reason: str)
+    """
+    import time
+    import re
+    from urllib.parse import urlparse
+    
+    is_valid = False
+    reason = "Unknown Error"
+    
+    try:
+        # Parse GitHub URL to extract owner and repo
+        # Support formats:
+        # - https://github.com/owner/repo
+        # - https://github.com/owner/repo/
+        # - github.com/owner/repo
+        # - https://github.com/owner/repo.git
+        # - https://github.com/owner/repo/tree/branch
+        
+        # Normalize URL - remove fragments and query params, strip whitespace
+        github_url = github_url.strip()
+        if not github_url.startswith('http'):
+            github_url = 'https://' + github_url
+        
+        parsed = urlparse(github_url)
+        # Get path and remove leading/trailing slashes, then split
+        path = parsed.path.strip('/')
+        path_parts = [p for p in path.split('/') if p]
+        
+        # Remove .git suffix if present
+        if path_parts and path_parts[-1].endswith('.git'):
+            path_parts[-1] = path_parts[-1][:-4]
+        
+        # Remove 'tree', 'blob', or branch names if present (keep only owner/repo)
+        if len(path_parts) > 2:
+            # If we have more than 2 parts, it might be owner/repo/tree/branch
+            # Just take the first two parts (owner and repo)
+            path_parts = path_parts[:2]
+        
+        if len(path_parts) < 2:
+            return False, f"Invalid GitHub URL format. Expected owner/repo, got: {github_url}"
+        
+        owner = path_parts[0]
+        repo = path_parts[1]
+        
+        # URL encode owner and repo to handle special characters
+        from urllib.parse import quote
+        owner_encoded = quote(owner, safe='')
+        repo_encoded = quote(repo, safe='')
+        
+        # Use GitHub API to check repository and list contents
+        api_url = f"https://api.github.com/repos/{owner_encoded}/{repo_encoded}/contents"
+        
+        # Debug logging
+        print(f"[DEBUG] Parsed GitHub URL: {github_url}")
+        print(f"[DEBUG] Owner: {owner}, Repo: {repo}")
+        print(f"[DEBUG] API URL: {api_url}")
+        
+        headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'AWS-AI-for-Bharat'
+        }
+        
+        # Optional: Add GitHub token for higher rate limits
+        github_token = os.getenv('GITHUB_TOKEN')
+        if github_token:
+            headers['Authorization'] = f'token {github_token}'
+        
+        # Retry logic with exponential backoff for rate limits
+        for attempt in range(max_retries):
+            try:
+                # Add small delay between requests to avoid hitting rate limits
+                if attempt > 0:
+                    wait_time = min(2 ** attempt, 60)  # Exponential backoff, max 60 seconds
+                    print(f"[INFO] Waiting {wait_time}s before retry {attempt + 1}/{max_retries} for {github_url}")
+                    time.sleep(wait_time)
+                
+                response = requests.get(api_url, headers=headers, timeout=15)
+                
+                # Debug: Log response details for 404 errors
+                if response.status_code == 404:
+                    print(f"[DEBUG] 404 Response for {api_url}")
+                    print(f"[DEBUG] Response headers: {dict(response.headers)}")
+                    try:
+                        error_data = response.json()
+                        print(f"[DEBUG] Error response: {error_data}")
+                        if 'message' in error_data:
+                            print(f"[DEBUG] GitHub API message: {error_data['message']}")
+                    except:
+                        print(f"[DEBUG] Response text: {response.text[:200]}")
+                
+                # Check rate limit headers
+                rate_limit_remaining = response.headers.get('X-RateLimit-Remaining')
+                rate_limit_reset = response.headers.get('X-RateLimit-Reset')
+                
+                if response.status_code == 429:
+                    # Rate limit exceeded
+                    if rate_limit_reset:
+                        reset_time = int(rate_limit_reset)
+                        wait_seconds = max(0, reset_time - int(time.time()))
+                        if attempt < max_retries - 1:
+                            print(f"[WARN] Rate limit exceeded for {github_url}. Waiting {wait_seconds}s until reset...")
+                            time.sleep(min(wait_seconds + 1, 300))  # Wait up to 5 minutes
+                            continue
+                        else:
+                            return False, f"Rate limit exceeded. Reset in {wait_seconds}s. Add GITHUB_TOKEN to .env for higher limits."
+                    else:
+                        if attempt < max_retries - 1:
+                            wait_time = 60  # Wait 1 minute if no reset time available
+                            print(f"[WARN] Rate limit exceeded for {github_url}. Waiting {wait_time}s...")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            return False, "Rate limit exceeded. Please wait and try again later, or add GITHUB_TOKEN to .env"
+                
+                if response.status_code == 404:
+                    # Try to get more details from the error response
+                    error_details = "Repository not found (404)"
+                    try:
+                        error_data = response.json()
+                        if 'message' in error_data:
+                            error_details = f"Repository not found: {error_data['message']}"
+                            # If it's a case sensitivity issue or similar, provide helpful message
+                            if 'Not Found' in error_data['message']:
+                                error_details = f"Repository not found. Check URL: {github_url} -> API: {api_url}"
+                    except:
+                        pass
+                    return False, error_details
+                
+                if response.status_code == 403:
+                    # Check if it's a rate limit issue (403 can also mean rate limit for some endpoints)
+                    if 'rate limit' in response.text.lower() or rate_limit_remaining == '0':
+                        if attempt < max_retries - 1:
+                            wait_time = 60
+                            print(f"[WARN] Rate limit issue for {github_url}. Waiting {wait_time}s...")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            return False, "Rate limit exceeded. Add GITHUB_TOKEN to .env for higher limits."
+                    return False, "Repository access forbidden (may be private)"
+                
+                if response.status_code != 200:
+                    error_msg = f"GitHub API error: {response.status_code}"
+                    try:
+                        error_data = response.json()
+                        if 'message' in error_data:
+                            error_msg += f" - {error_data['message']}"
+                    except:
+                        pass
+                    return False, error_msg
+                
+                # Success - parse response
+                contents = response.json()
+                
+                if not isinstance(contents, list):
+                    return False, "Invalid repository structure"
+                
+                # Check if any folder starts with ".kiro"
+                found_kiro_folder = False
+                kiro_folder_name = None
+                
+                def check_for_kiro_folder(items, depth=0, max_depth=2):
+                    """Recursively check for .kiro folder (limit depth to avoid too many API calls)"""
+                    nonlocal found_kiro_folder, kiro_folder_name
+                    if depth > max_depth or found_kiro_folder:
+                        return
+                    
+                    for item in items:
+                        if item.get('type') == 'dir':
+                            folder_name = item.get('name', '')
+                            if folder_name.startswith('.kiro'):
+                                found_kiro_folder = True
+                                kiro_folder_name = folder_name
+                                return
+                
+                check_for_kiro_folder(contents)
+                
+                if found_kiro_folder:
+                    is_valid = True
+                    reason = f"Valid - Found folder: {kiro_folder_name}"
+                else:
+                    # List all folder names for debugging
+                    folder_names = [item.get('name') for item in contents if item.get('type') == 'dir']
+                    if folder_names:
+                        reason = f"Invalid - No folder starting with '.kiro' found. Available folders: {', '.join(folder_names[:10])}"
+                    else:
+                        reason = "Invalid - No folders found in repository root"
+                
+                # Success - break out of retry loop
+                break
+                
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"[WARN] Timeout for {github_url}, retrying...")
+                    continue
+                return False, "Request timeout - GitHub API unreachable"
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    print(f"[WARN] Request error for {github_url}: {e}, retrying...")
+                    time.sleep(2 ** attempt)
+                    continue
+                return False, f"Network error: {str(e)}"
+        
+    except Exception as e:
+        print(f"[ERROR] Error verifying GitHub repo {github_url}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, f"System Error: {str(e)}"
+    
+    return is_valid, reason
+
+
+def validate_single_kiro_github(submission):
+    """Validate a single kiro GitHub submission (for parallel processing)
+    Checks if repository exists and contains a folder starting with .kiro/
+    """
+    github_link = submission.get('github_link')
+    if not github_link:
+        return None
+    
+    is_valid, reason = verify_github_repo(github_link)
+    
+    # Update submission
+    try:
+        KiroSubmission.update(
+            submission['week_number'],
+            submission['email'],
+            github_valid=is_valid,
+            github_validation_reason=reason
+        )
+        print(f"[DEBUG] Updated kiro GitHub submission - {submission['email']}: Valid={is_valid}, Reason={reason}")
+    except Exception as e:
+        print(f"[ERROR] Failed to update kiro GitHub submission: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return {
+        'week_number': submission['week_number'],
+        'email': submission['email'],
+        'link': github_link,
+        'valid': is_valid,
+        'reason': reason
+    }
+
+
+def validate_single_kiro_submission(submission):
+    """Validate a single kiro blog submission (for parallel processing)
+    Always re-verifies and updates likes/comments even if submission was already valid
+    """
+    link = submission.get('blog_link')
+    if not link:
+        return None
+    
+    is_valid = False
+    reason = "Unknown Error"
+    likes = 0
+    comments = 0
+    
+    try:
+        # Check domain
+        if 'community.aws' in link or 'builder.aws.com' in link:
+            print(f"[DEBUG] Validating kiro blog link: {link}")
+            # Use scrape_blog_metrics which handles Selenium and 404 detection
+            scraped_likes, scraped_comments, scrape_error, is_404 = scrape_blog_metrics(link)
+            
+            print(f"[DEBUG] Scraped results - Likes: {scraped_likes}, Comments: {scraped_comments}, Error: {scrape_error}, Is_404: {is_404}")
+            
+            # Check for 404 first
+            if is_404 or (scrape_error and "404" in scrape_error):
+                is_valid = False
+                reason = "404 Not Found"
+                likes = 0
+                comments = 0
+            else:
+                # Page is valid, use scraped metrics (always update likes/comments)
+                is_valid = True
+                likes = scraped_likes
+                comments = scraped_comments
+                
+                if scrape_error:
+                    reason = f"Verified but {scrape_error}"
+                else:
+                    reason = "Verified"
+                
+                print(f"[DEBUG] Setting - Valid: {is_valid}, Likes: {likes}, Comments: {comments}, Reason: {reason}")
+        else:
+            reason = "Invalid Domain"
+    except Exception as e:
+        print(f"[ERROR] Error validating link {link}: {e}")
+        import traceback
+        traceback.print_exc()
+        reason = f"System Error: {str(e)}"
+    
+    # Always update submission (even if it was already valid) to refresh likes/comments
+    try:
+        KiroSubmission.update(
+            submission['week_number'],
+            submission['email'],
+            valid=is_valid,
+            validation_reason=reason,
+            likes=likes,
+            comments=comments
+        )
+        print(f"[DEBUG] Updated kiro submission - {submission['email']}: Valid={is_valid}, Likes={likes}, Comments={comments}")
+    except Exception as e:
+        print(f"[ERROR] Failed to update kiro submission: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return {
+        'week_number': submission['week_number'],
+        'email': submission['email'],
+        'link': link,
+        'valid': is_valid,
+        'reason': reason,
+        'likes': likes,
+        'comments': comments
+    }
+
+
+@app.route('/api/kiro-submissions/statistics/<int:week_number>')
+@login_required
+@permission_required('kiro_submissions_list')
+def kiro_submissions_statistics(week_number):
+    """Get Kiro submission statistics for a specific week"""
+    try:
+        # Blog statistics
+        blog_query = """
+            SELECT 
+                COUNT(*) as total_count,
+                COUNT(CASE WHEN valid = true THEN 1 END) as valid_count,
+                COUNT(CASE WHEN valid = false OR valid IS NULL THEN 1 END) as invalid_count
+            FROM kiro_submission
+            WHERE week_number = %s AND blog_link IS NOT NULL AND blog_link != ''
+        """
+        blog_result = db_manager.execute_query(blog_query, (week_number,))
+        
+        # GitHub statistics
+        github_query = """
+            SELECT 
+                COUNT(*) as total_count,
+                COUNT(CASE WHEN github_valid = true THEN 1 END) as valid_count,
+                COUNT(CASE WHEN github_valid = false OR github_valid IS NULL THEN 1 END) as invalid_count
+            FROM kiro_submission
+            WHERE week_number = %s AND github_link IS NOT NULL AND github_link != ''
+        """
+        github_result = db_manager.execute_query(github_query, (week_number,))
+        
+        blog_stats = blog_result[0] if blog_result else {'total_count': 0, 'valid_count': 0, 'invalid_count': 0}
+        github_stats = github_result[0] if github_result else {'total_count': 0, 'valid_count': 0, 'invalid_count': 0}
+        
+        return jsonify({
+            'success': True,
+            'week_number': week_number,
+            'blog': {
+                'total': blog_stats.get('total_count', 0),
+                'valid': blog_stats.get('valid_count', 0),
+                'invalid': blog_stats.get('invalid_count', 0)
+            },
+            'github': {
+                'total': github_stats.get('total_count', 0),
+                'valid': github_stats.get('valid_count', 0),
+                'invalid': github_stats.get('invalid_count', 0)
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@app.route('/api/kiro-submissions/validate-stream')
+@login_required
+@permission_required('kiro_submission_create')
+def kiro_submissions_validate_stream():
+    """Stream validation progress for kiro blog submissions"""
+    def generate():
+        try:
+            # Get week_number from query params
+            week_number = request.args.get('week_number', type=int)
+            if not week_number:
+                yield json.dumps({'error': 'Week number is required'}) + '\n'
+                return
+            
+            # Get ALL submissions for this week (not just invalid ones) to re-verify and update likes/comments
+            submissions = KiroSubmission.get_by_week(week_number)
+            submissions_to_validate = [s for s in submissions if s.get('blog_link')]
+            
+            if not submissions_to_validate:
+                yield json.dumps({
+                    'current': 0,
+                    'total': 0,
+                    'status': 'No blog links found to validate'
+                }) + '\n'
+                return
+            
+            total_count = len(submissions_to_validate)
+            validated_count = 0
+            failed_count = 0
+            processed_count = 0
+            updated_count = 0
+            
+            # Use ThreadPoolExecutor with 10 workers for parallel processing
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Submit all validation tasks
+                future_to_submission = {
+                    executor.submit(validate_single_kiro_submission, submission): submission 
+                    for submission in submissions_to_validate
+                }
+                
+                # Process results as they complete
+                for future in as_completed(future_to_submission):
+                    try:
+                        result = future.result()
+                        processed_count += 1
+                        
+                        if result:
+                            if result['valid']:
+                                validated_count += 1
+                                # Check if likes or comments were updated
+                                if result.get('likes', 0) > 0 or result.get('comments', 0) > 0:
+                                    updated_count += 1
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... (Likes: {result.get("likes", 0)}, Comments: {result.get("comments", 0)})'
+                                else:
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            else:
+                                failed_count += 1
+                                status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            
+                            # Yield progress with detailed counts
+                            yield json.dumps({
+                                'current': processed_count,
+                                'total': total_count,
+                                'validated': validated_count,
+                                'failed': failed_count,
+                                'updated': updated_count,
+                                'status': status_msg
+                            }) + '\n'
+                    except Exception as e:
+                        processed_count += 1
+                        failed_count += 1
+                        yield json.dumps({
+                            'current': processed_count,
+                            'total': total_count,
+                            'validated': validated_count,
+                            'failed': failed_count,
+                            'updated': updated_count,
+                            'status': f'Error processing: {str(e)}'
+                        }) + '\n'
+            
+            # Final summary
+            yield json.dumps({
+                'current': total_count,
+                'total': total_count,
+                'status': 'Complete',
+                'summary': f'Validated: {validated_count}, Failed: {failed_count}, Updated likes/comments: {updated_count}'
+            }) + '\n'
+            
+        except Exception as e:
+            yield json.dumps({'error': str(e)}) + '\n'
+
+    return Response(stream_with_context(generate()), mimetype='application/json')
+
+
+@app.route('/api/kiro-submissions/validate-github-stream')
+@login_required
+@permission_required('kiro_submission_create')
+def kiro_submissions_validate_github_stream():
+    """Stream validation progress for kiro GitHub submissions
+    Uses fewer workers and adds delays to respect GitHub API rate limits
+    """
+    import time
+    
+    def generate():
+        try:
+            # Get week_number from query params
+            week_number = request.args.get('week_number', type=int)
+            if not week_number:
+                yield json.dumps({'error': 'Week number is required'}) + '\n'
+                return
+            
+            # Get ALL submissions for this week with GitHub links
+            submissions = KiroSubmission.get_by_week(week_number)
+            submissions_to_validate = [s for s in submissions if s.get('github_link')]
+            
+            if not submissions_to_validate:
+                yield json.dumps({
+                    'current': 0,
+                    'total': 0,
+                    'status': 'No GitHub links found to validate'
+                }) + '\n'
+                return
+            
+            total_count = len(submissions_to_validate)
+            validated_count = 0
+            failed_count = 0
+            processed_count = 0
+            
+            # Use appropriate number of workers based on token availability
+            # Without token: 60 requests/hour = 1 per minute (use 1 worker)
+            # With token: 5000 requests/hour = ~83 per minute (use 10 workers like blog validation)
+            github_token = os.getenv('GITHUB_TOKEN')
+            max_workers = 10 if github_token else 1
+            
+            if github_token:
+                yield json.dumps({
+                    'current': 0,
+                    'total': total_count,
+                    'status': f'Starting validation with {max_workers} workers (GitHub token detected)...'
+                }) + '\n'
+            else:
+                yield json.dumps({
+                    'current': 0,
+                    'total': total_count,
+                    'status': f'Starting validation with {max_workers} worker (no token - limited to 60 requests/hour). Add GITHUB_TOKEN to .env for faster validation...'
+                }) + '\n'
+            
+            # Use ThreadPoolExecutor with appropriate workers for GitHub API
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all validation tasks
+                future_to_submission = {
+                    executor.submit(validate_single_kiro_github, submission): submission 
+                    for submission in submissions_to_validate
+                }
+                
+                # Process results as they complete
+                for future in as_completed(future_to_submission):
+                    try:
+                        result = future.result()
+                        processed_count += 1
+                        
+                        if result:
+                            if result['valid']:
+                                validated_count += 1
+                                status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            else:
+                                failed_count += 1
+                                # Check if it's a rate limit error
+                                if 'rate limit' in result.get('reason', '').lower():
+                                    status_msg = f'Processed {processed_count}/{total_count}: Rate limit hit. Consider adding GITHUB_TOKEN to .env'
+                                else:
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            
+                            # Yield progress with detailed counts
+                            yield json.dumps({
+                                'current': processed_count,
+                                'total': total_count,
+                                'validated': validated_count,
+                                'failed': failed_count,
+                                'status': status_msg
+                            }) + '\n'
+                            
+                            # Add small delay between requests only if no token (to respect rate limits)
+                            # With token, we can process faster (5000/hour = ~83/min, so 10 workers is safe)
+                            if not github_token and processed_count < total_count:
+                                time.sleep(1)  # 1 second delay without token to respect 60/hour limit
+                            # No delay needed with token - 10 workers can handle 5000/hour easily
+                                
+                    except Exception as e:
+                        processed_count += 1
+                        failed_count += 1
+                        error_msg = str(e)
+                        if 'rate limit' in error_msg.lower() or '429' in error_msg:
+                            error_msg = 'Rate limit exceeded. Please wait and try again, or add GITHUB_TOKEN to .env'
+                        yield json.dumps({
+                            'current': processed_count,
+                            'total': total_count,
+                            'validated': validated_count,
+                            'failed': failed_count,
+                            'status': f'Error processing: {error_msg}'
+                        }) + '\n'
+            
+            # Final summary
+            yield json.dumps({
+                'current': total_count,
+                'total': total_count,
+                'status': 'Complete',
+                'summary': f'Validated: {validated_count}, Failed: {failed_count}'
+            }) + '\n'
+            
+        except Exception as e:
+            yield json.dumps({'error': str(e)}) + '\n'
+
+    return Response(stream_with_context(generate()), mimetype='application/json')
+
 
 # ============================================
 # Routes - Master Logs
@@ -2316,6 +3137,309 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return render_template('500.html'), 500
+
+
+# ============================================
+# Routes - Kiro Data Import
+# ============================================
+
+@app.route('/import/kiro')
+@login_required
+@permission_required('import_kiro_page')
+def import_kiro_page():
+    """Kiro data import page"""
+    return render_template('import_kiro.html')
+
+
+@app.route('/api/import/kiro/detect-sheets', methods=['POST'])
+@login_required
+@permission_required('import_kiro_page')
+def import_kiro_detect_sheets():
+    """Detect Kiro Week sheets in uploaded file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided', 'success': False}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected', 'success': False}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type', 'success': False}), 400
+        
+        # Save file temporarily
+        filename = secure_filename(file.filename)
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        file.save(file_path)
+        
+        # Read workbook and detect Kiro sheets
+        from import_utils import read_xlsx_file
+        import re
+        
+        workbook = read_xlsx_file(file_path)
+        kiro_sheets = []
+        
+        # Pattern: "Kiro Week {number} Challenge" or "{number}.Kiro Week {number} Challenge" (case-insensitive)
+        # Matches both "Kiro Week 1 Challenge" and "13.Kiro Week 1 Challenge"
+        pattern = re.compile(r'^(?:\d+\.\s*)?Kiro Week (\d+) Challenge$', re.IGNORECASE)
+        
+        for idx, sheet_name in enumerate(workbook.sheetnames):
+            match = pattern.match(sheet_name.strip())
+            if match:
+                week_number = int(match.group(1))
+                kiro_sheets.append({
+                    'index': idx,
+                    'name': sheet_name,
+                    'week_number': week_number
+                })
+        
+        workbook.close()
+        
+        # Clean up temp file
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'sheets': kiro_sheets,
+            'count': len(kiro_sheets)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@app.route('/api/import/kiro/preview', methods=['POST'])
+@login_required
+@permission_required('import_kiro_page')
+def import_kiro_preview():
+    """Preview Kiro import data with column mapping"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided', 'success': False}), 400
+        
+        file = request.files['file']
+        sheet_index = int(request.form.get('sheet_index', 0))
+        week_number = int(request.form.get('week_number', 1))
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected', 'success': False}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type', 'success': False}), 400
+        
+        # Save file temporarily
+        filename = secure_filename(file.filename)
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        file.save(file_path)
+        
+        # Read workbook and get sheet
+        from import_utils import read_xlsx_file, get_sheet_headers
+        
+        workbook = read_xlsx_file(file_path)
+        if sheet_index >= len(workbook.sheetnames):
+            workbook.close()
+            return jsonify({'error': 'Invalid sheet index', 'success': False}), 400
+        
+        sheet = workbook[workbook.sheetnames[sheet_index]]
+        headers = get_sheet_headers(sheet)
+        
+        # Get sample data (first 5 rows)
+        sample_data = []
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2, max_row=6, values_only=True), start=2):
+            if not any(cell for cell in row):
+                continue
+            row_data = {}
+            for col_idx, value in enumerate(row):
+                if col_idx < len(headers):
+                    row_data[headers[col_idx]] = str(value) if value is not None else ''
+            sample_data.append(row_data)
+        
+        workbook.close()
+        
+        # Clean up temp file
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        
+        return jsonify({
+            'success': True,
+            'headers': headers,
+            'sample_data': sample_data,
+            'week_number': week_number
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@app.route('/api/import/kiro/process', methods=['POST'])
+@login_required
+@permission_required('import_kiro_page')
+def import_kiro_process():
+    """Process Kiro import with mapping"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided', 'success': False}), 400
+        
+        file = request.files['file']
+        config_str = request.form.get('config', '{}')
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected', 'success': False}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type', 'success': False}), 400
+        
+        # Parse config
+        try:
+            config = json.loads(config_str)
+        except Exception as e:
+            return jsonify({'error': f'Invalid configuration: {str(e)}', 'success': False}), 400
+        
+        sheet_index = config.get('sheet_index')
+        week_number = config.get('week_number')
+        mappings = config.get('mappings', {})
+        import_mode = config.get('mode', 'upsert')  # Default to upsert
+        
+        if sheet_index is None or week_number is None:
+            return jsonify({'error': 'Missing sheet_index or week_number', 'success': False}), 400
+        
+        if import_mode not in ['create', 'update', 'upsert']:
+            return jsonify({'error': 'Invalid import mode. Must be "create", "update", or "upsert"', 'success': False}), 400
+        
+        # Save file temporarily
+        filename = secure_filename(file.filename)
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        file.save(file_path)
+        
+        # Process import
+        try:
+            from import_utils import read_xlsx_file, get_sheet_headers, validate_email
+            
+            workbook = read_xlsx_file(file_path)
+            if sheet_index >= len(workbook.sheetnames):
+                workbook.close()
+                return jsonify({'error': 'Invalid sheet index', 'success': False}), 400
+            
+            sheet = workbook[workbook.sheetnames[sheet_index]]
+            headers = get_sheet_headers(sheet)
+            
+            # Build column index map
+            column_index_map = {}
+            for db_field, file_column in mappings.items():
+                if file_column and file_column in headers:
+                    column_index_map[db_field] = headers.index(file_column)
+            
+            # Process rows
+            records = []
+            errors = []
+            created = 0
+            updated = 0
+            skipped = 0
+            
+            for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                if not any(cell for cell in row):
+                    continue
+                
+                try:
+                    record = {
+                        'week_number': week_number,
+                        'email': None,
+                        'github_link': None,
+                        'blog_link': None,
+                        'created_at': None,
+                        'updated_at': None
+                    }
+                    
+                    # Map columns
+                    for db_field, col_index in column_index_map.items():
+                        if col_index < len(row):
+                            value = row[col_index]
+                            if value is not None:
+                                # Parse datetime fields
+                                if db_field in ['created_at', 'updated_at']:
+                                    from import_utils import parse_datetime
+                                    parsed_dt = parse_datetime(value)
+                                    if parsed_dt:
+                                        record[db_field] = parsed_dt
+                                else:
+                                    value = str(value).strip()
+                                    if value:
+                                        record[db_field] = value
+                    
+                    # Validate required fields
+                    if not record.get('email'):
+                        errors.append(f"Row {row_num}: Missing email")
+                        skipped += 1
+                        continue
+                    
+                    # Validate email format
+                    if not validate_email(record['email']):
+                        errors.append(f"Row {row_num}: Invalid email: {record['email']}")
+                        skipped += 1
+                        continue
+                    
+                    record['email'] = record['email'].lower().strip()
+                    
+                    records.append(record)
+                    
+                except Exception as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+                    skipped += 1
+                    continue
+            
+            workbook.close()
+            
+            # Import to database using appropriate method based on mode
+            if records:
+                try:
+                    result = KiroSubmission.bulk_upsert(records, mode=import_mode)
+                    created = result.get('inserted', 0)
+                    updated = result.get('updated', 0)
+                    print(f"Import result: created={created}, updated={updated}, mode={import_mode}, total_records={len(records)}")
+                except Exception as e:
+                    error_msg = f"Database error: {str(e)}"
+                    errors.append(error_msg)
+                    print(f"Database import error: {error_msg}")
+                    # Still return success but with errors
+            else:
+                errors.append("No valid records to import after validation")
+            
+            # Clean up temp file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+            
+            # Calculate total rows processed (including skipped)
+            total_rows_processed = len(records) + skipped
+            
+            return jsonify({
+                'success': True,
+                'created': created,
+                'updated': updated,
+                'skipped': skipped,
+                'total': total_rows_processed,
+                'valid_records': len(records),
+                'errors': errors,  # Show all errors
+                'error_count': len(errors),
+                'mode': import_mode
+            })
+        except Exception as e:
+            # Clean up temp file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+            return jsonify({'error': str(e), 'success': False}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
 
 
 # ============================================
