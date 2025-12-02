@@ -134,7 +134,8 @@ def initialize_database():
 @app.before_request
 def load_user_permissions():
     """Reload user permissions in session on each request"""
-    if 'user_id' in session and 'user_routes' not in session:
+    if 'user_id' in session:
+        # Always reload permissions to ensure they're up to date
         user = RBACUser.get_by_id(session['user_id'])
         if user:
             if user.get('is_admin'):
@@ -272,12 +273,22 @@ def index():
         cursor.execute("SELECT COUNT(*) FROM project_submission")
         total_blog_submission = cursor.fetchone()[0]
         
+        # Count total Kiro submissions
+        cursor.execute("SELECT COUNT(*) FROM kiro_submission")
+        total_kiro_submission = cursor.fetchone()[0]
+        
+        # Count total Kiro weeks
+        cursor.execute("SELECT COUNT(DISTINCT week_number) FROM kiro_submission")
+        total_kiro_weeks = cursor.fetchone()[0]
+        
         db_manager.return_connection(conn)
         
         stats = {
             'total_registration': total_registration,
             'total_form_submission': total_form_submission,
-            'total_blog_submission': total_blog_submission
+            'total_blog_submission': total_blog_submission,
+            'total_kiro_submission': total_kiro_submission,
+            'total_kiro_weeks': total_kiro_weeks
         }
         
         return render_template('dashboard.html', recent_logs=recent_logs, stats=stats)
@@ -592,7 +603,7 @@ def user_view(email):
 
 @app.route('/users/<email>/edit', methods=['GET', 'POST'])
 @login_required
-@permission_required('user_create')
+@permission_required('user_edit_any')
 def user_edit(email):
     """Edit user"""
     user = UserPII.get(email)
@@ -2068,6 +2079,73 @@ def kiro_submissions_statistics(week_number):
                 'valid': github_stats.get('valid_count', 0),
                 'invalid': github_stats.get('invalid_count', 0)
             }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@app.route('/api/dashboard/kiro-stats')
+@login_required
+@permission_required('index')
+def get_kiro_dashboard_stats():
+    """Get overall Kiro challenge statistics for dashboard"""
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # Overall statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_submissions,
+                COUNT(DISTINCT week_number) as total_weeks,
+                COUNT(DISTINCT email) as unique_participants,
+                COUNT(CASE WHEN blog_link IS NOT NULL AND blog_link != '' THEN 1 END) as total_blogs,
+                COUNT(CASE WHEN blog_link IS NOT NULL AND blog_link != '' AND valid = true THEN 1 END) as valid_blogs,
+                COUNT(CASE WHEN github_link IS NOT NULL AND github_link != '' THEN 1 END) as total_github,
+                COUNT(CASE WHEN github_link IS NOT NULL AND github_link != '' AND github_valid = true THEN 1 END) as valid_github
+            FROM kiro_submission
+        """)
+        overall_stats = cursor.fetchone()
+        
+        # Week-by-week breakdown
+        cursor.execute("""
+            SELECT 
+                week_number,
+                COUNT(*) as total_submissions,
+                COUNT(CASE WHEN blog_link IS NOT NULL AND blog_link != '' THEN 1 END) as blog_count,
+                COUNT(CASE WHEN blog_link IS NOT NULL AND blog_link != '' AND valid = true THEN 1 END) as valid_blog_count,
+                COUNT(CASE WHEN github_link IS NOT NULL AND github_link != '' THEN 1 END) as github_count,
+                COUNT(CASE WHEN github_link IS NOT NULL AND github_link != '' AND github_valid = true THEN 1 END) as valid_github_count
+            FROM kiro_submission
+            GROUP BY week_number
+            ORDER BY week_number ASC
+        """)
+        
+        weeks_data = []
+        for row in cursor.fetchall():
+            weeks_data.append({
+                'week_number': row[0],
+                'total_submissions': row[1],
+                'blog_count': row[2],
+                'valid_blog_count': row[3],
+                'github_count': row[4],
+                'valid_github_count': row[5]
+            })
+        
+        db_manager.return_connection(conn)
+        
+        return jsonify({
+            'success': True,
+            'overall': {
+                'total_submissions': overall_stats[0] if overall_stats else 0,
+                'total_weeks': overall_stats[1] if overall_stats else 0,
+                'unique_participants': overall_stats[2] if overall_stats else 0,
+                'total_blogs': overall_stats[3] if overall_stats else 0,
+                'valid_blogs': overall_stats[4] if overall_stats else 0,
+                'total_github': overall_stats[5] if overall_stats else 0,
+                'valid_github': overall_stats[6] if overall_stats else 0
+            },
+            'weeks': weeks_data
         })
     except Exception as e:
         return jsonify({'error': str(e), 'success': False}), 500

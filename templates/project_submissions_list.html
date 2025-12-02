@@ -87,6 +87,73 @@
         </div>
     </div>
 
+    <!-- Filters and Search Section -->
+    <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1.5rem;">
+        <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; margin-bottom: 1rem;">
+            <!-- Search Box -->
+            <div style="flex: 1; min-width: 300px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Search</label>
+                <div style="position: relative;">
+                    <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none;"></i>
+                    <input type="text" id="submissionSearch" placeholder="Search by workshop, email, name, or blog link..." 
+                           style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; transition: all 0.2s ease; background-color: #FFFFFF;">
+                </div>
+            </div>
+            
+            <!-- Status Filter -->
+            <div style="min-width: 180px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Status</label>
+                <select id="filterStatus" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="all">All</option>
+                    <option value="valid">Valid</option>
+                    <option value="invalid">Invalid</option>
+                </select>
+            </div>
+            
+            <!-- Workshop Filter -->
+            <div style="min-width: 200px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Workshop</label>
+                <select id="filterWorkshop" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="all">All Workshops</option>
+                </select>
+            </div>
+            
+            <!-- Sort By -->
+            <div style="min-width: 180px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Sort By</label>
+                <select id="sortBy" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="workshop_name">Workshop</option>
+                    <option value="email">Email</option>
+                    <option value="name">Name</option>
+                    <option value="created_at">Created At</option>
+                    <option value="likes">Likes</option>
+                    <option value="comments">Comments</option>
+                </select>
+            </div>
+            
+            <!-- Sort Direction -->
+            <div style="min-width: 140px;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Order</label>
+                <select id="sortDirection" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; background-color: #FFFFFF; cursor: pointer;">
+                    <option value="asc">Ascending</option>
+                    <option value="desc">Descending</option>
+                </select>
+            </div>
+            
+            <!-- Clear Filters Button -->
+            <div>
+                <button id="clearFilters" class="btn btn-secondary" style="padding: 0.75rem 1.5rem; white-space: nowrap;">
+                    <i class="fas fa-times"></i> Clear
+                </button>
+            </div>
+        </div>
+        
+        <!-- Results Count -->
+        <div id="resultsCount" style="color: #6B7280; font-size: 0.875rem; margin-top: 0.5rem;">
+            Showing all submissions
+        </div>
+    </div>
+
     <div class="table-container">
         <table class="data-table">
             <thead>
@@ -101,10 +168,17 @@
                     <th>Created At</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="submissionsTableBody">
                 {% if submissions %}
                 {% for submission in submissions %}
-                <tr>
+                <tr data-searchable="{{ (submission.workshop_name or '')|lower }} {{ (submission.email or '')|lower }} {{ (submission.name or '')|lower }} {{ (submission.project_link or '')|lower }}"
+                    data-status="{% if submission.valid %}valid{% else %}invalid{% endif %}"
+                    data-workshop="{{ (submission.workshop_name or '')|lower }}"
+                    data-email="{{ (submission.email or '')|lower }}"
+                    data-name="{{ (submission.name or '')|lower }}"
+                    data-created-at="{{ submission.created_at | sortable_date }}"
+                    data-likes="{{ submission.likes or 0 }}"
+                    data-comments="{{ submission.comments or 0 }}">
                     <td><strong>{{ submission.workshop_name }}</strong></td>
                     <td>{{ submission.email }}</td>
                     <td>
@@ -128,7 +202,7 @@
                         <span class="stat-value stat-info">{{ submission.comments or 0 }}</span>
                     </td>
                     <td>{{ submission.validation_reason or '-' }}</td>
-                    <td>{{ submission.created_at.strftime('%Y-%m-%d %H:%M:%S') if submission.created_at else '-' }}</td>
+                    <td>{{ submission.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if submission.created_at else '-' }}</td>
                 </tr>
                 {% endfor %}
                 {% else %}
@@ -148,7 +222,191 @@
     // Load blog statistics on page load
     document.addEventListener('DOMContentLoaded', function() {
         loadBlogStatistics();
+        initializeFiltersAndSort();
     });
+
+    function initializeFiltersAndSort() {
+        const searchInput = document.getElementById('submissionSearch');
+        const tableBody = document.getElementById('submissionsTableBody');
+        const filterStatus = document.getElementById('filterStatus');
+        const filterWorkshop = document.getElementById('filterWorkshop');
+        const sortBy = document.getElementById('sortBy');
+        const sortDirection = document.getElementById('sortDirection');
+        const clearFiltersBtn = document.getElementById('clearFilters');
+        const resultsCount = document.getElementById('resultsCount');
+        
+        if (!searchInput || !tableBody) return;
+        
+        const allRows = Array.from(tableBody.querySelectorAll('tr'));
+        const submissionRows = allRows.filter(row => row.hasAttribute('data-searchable'));
+        let noResultsRow = allRows.find(row => row.querySelector('td[colspan]'));
+        
+        // Create "No results" row if it doesn't exist
+        if (!noResultsRow && submissionRows.length > 0) {
+            noResultsRow = document.createElement('tr');
+            noResultsRow.style.display = 'none';
+            noResultsRow.innerHTML = '<td colspan="8" class="text-center text-muted">No submissions found matching your filters.</td>';
+            tableBody.appendChild(noResultsRow);
+        }
+
+        // Populate workshop filter
+        const workshops = new Set();
+        submissionRows.forEach(row => {
+            const workshop = row.getAttribute('data-workshop');
+            if (workshop) {
+                workshops.add(workshop);
+            }
+        });
+        
+        const sortedWorkshops = Array.from(workshops).sort();
+        sortedWorkshops.forEach(workshop => {
+            const option = document.createElement('option');
+            option.value = workshop;
+            option.textContent = workshop.charAt(0).toUpperCase() + workshop.slice(1);
+            filterWorkshop.appendChild(option);
+        });
+
+        // Apply filters and sorting
+        function applyFiltersAndSort() {
+            const searchTerm = (searchInput.value || '').toLowerCase().trim();
+            const statusFilter = filterStatus.value;
+            const workshopFilter = filterWorkshop.value;
+            const sortField = sortBy.value;
+            const sortDir = sortDirection.value;
+            
+            // Filter rows
+            let visibleRows = submissionRows.filter(row => {
+                // Search filter
+                if (searchTerm) {
+                    const searchableText = row.getAttribute('data-searchable') || '';
+                    if (!searchableText.includes(searchTerm)) {
+                        return false;
+                    }
+                }
+                
+                // Status filter
+                if (statusFilter !== 'all') {
+                    const status = row.getAttribute('data-status') || '';
+                    if (status !== statusFilter) {
+                        return false;
+                    }
+                }
+                
+                // Workshop filter
+                if (workshopFilter !== 'all') {
+                    const workshop = row.getAttribute('data-workshop') || '';
+                    if (workshop !== workshopFilter) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            // Sort rows
+            visibleRows.sort((a, b) => {
+                let aVal, bVal;
+                
+                switch(sortField) {
+                    case 'workshop_name':
+                        aVal = a.getAttribute('data-workshop') || '';
+                        bVal = b.getAttribute('data-workshop') || '';
+                        break;
+                    case 'email':
+                        aVal = a.getAttribute('data-email') || '';
+                        bVal = b.getAttribute('data-email') || '';
+                        break;
+                    case 'name':
+                        aVal = a.getAttribute('data-name') || '';
+                        bVal = b.getAttribute('data-name') || '';
+                        break;
+                    case 'created_at':
+                        aVal = parseInt(a.getAttribute('data-created-at') || '0');
+                        bVal = parseInt(b.getAttribute('data-created-at') || '0');
+                        break;
+                    case 'likes':
+                        aVal = parseInt(a.getAttribute('data-likes') || '0');
+                        bVal = parseInt(b.getAttribute('data-likes') || '0');
+                        break;
+                    case 'comments':
+                        aVal = parseInt(a.getAttribute('data-comments') || '0');
+                        bVal = parseInt(b.getAttribute('data-comments') || '0');
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                // Compare values
+                let comparison = 0;
+                if (typeof aVal === 'string' && typeof bVal === 'string') {
+                    comparison = aVal.localeCompare(bVal);
+                } else {
+                    comparison = aVal - bVal;
+                }
+                
+                return sortDir === 'asc' ? comparison : -comparison;
+            });
+            
+            // Hide all rows first
+            submissionRows.forEach(row => {
+                row.style.display = 'none';
+            });
+            
+            // Show and reorder visible rows
+            visibleRows.forEach((row, index) => {
+                row.style.display = '';
+                tableBody.insertBefore(row, tableBody.children[index + (noResultsRow ? 1 : 0)]);
+            });
+            
+            // Show/hide "No results" message
+            if (noResultsRow) {
+                if (visibleRows.length === 0 && submissionRows.length > 0) {
+                    noResultsRow.style.display = '';
+                } else {
+                    noResultsRow.style.display = 'none';
+                }
+            }
+            
+            // Update results count
+            const totalCount = submissionRows.length;
+            const visibleCount = visibleRows.length;
+            if (visibleCount === totalCount) {
+                resultsCount.textContent = `Showing all ${totalCount} submission${totalCount !== 1 ? 's' : ''}`;
+            } else {
+                resultsCount.textContent = `Showing ${visibleCount} of ${totalCount} submission${totalCount !== 1 ? 's' : ''}`;
+            }
+        }
+
+        // Event listeners
+        searchInput.addEventListener('input', applyFiltersAndSort);
+        filterStatus.addEventListener('change', applyFiltersAndSort);
+        filterWorkshop.addEventListener('change', applyFiltersAndSort);
+        sortBy.addEventListener('change', applyFiltersAndSort);
+        sortDirection.addEventListener('change', applyFiltersAndSort);
+        
+        clearFiltersBtn.addEventListener('click', function() {
+            searchInput.value = '';
+            filterStatus.value = 'all';
+            filterWorkshop.value = 'all';
+            sortBy.value = 'workshop_name';
+            sortDirection.value = 'asc';
+            applyFiltersAndSort();
+        });
+
+        // Add focus styles
+        searchInput.addEventListener('focus', function() {
+            this.style.borderColor = '#F79C22';
+            this.style.boxShadow = '0 0 0 3px rgba(247, 156, 34, 0.1)';
+        });
+
+        searchInput.addEventListener('blur', function() {
+            this.style.borderColor = '#E5E7EB';
+            this.style.boxShadow = 'none';
+        });
+        
+        // Initial filter application
+        applyFiltersAndSort();
+    }
 
     async function loadBlogStatistics() {
         const loadingEl = document.getElementById('blogStatisticsLoading');

@@ -40,6 +40,17 @@
                 <p>Total Blog Submission</p>
             </div>
         </div>
+
+        <div class="stat-card stat-warning">
+            <div class="stat-icon">
+                <i class="fas fa-calendar-week"></i>
+            </div>
+            <div class="stat-content">
+                <h3>{{ stats.get('total_kiro_submission', 0) }}</h3>
+                <p>Total Kiro Submissions</p>
+                <small style="color: #6B7280; font-size: 0.875rem;">{{ stats.get('total_kiro_weeks', 0) }} Week{{ 's' if stats.get('total_kiro_weeks', 0) != 1 else '' }}</small>
+            </div>
+        </div>
     </div>
 
     <!-- Export to Google Sheet Button -->
@@ -49,6 +60,21 @@
             <span>Export to Google Sheet</span>
         </button>
         <div id="exportStatus" style="margin-top: 0.5rem; display: none;"></div>
+    </div>
+
+    <!-- Kiro Challenge Statistics Section -->
+    <div class="dashboard-section">
+        <div class="section-header">
+            <h2><i class="fas fa-calendar-week"></i> Kiro Weekly Challenge Statistics</h2>
+            <div class="loading-indicator" id="kiroStatsLoading" style="display: none;">
+                <i class="fas fa-spinner fa-spin"></i> Loading Kiro stats...
+            </div>
+        </div>
+        <div id="kiroStatsContainer" style="margin-top: 1.5rem;">
+            <div class="text-center text-muted" style="padding: 2rem;">
+                <i class="fas fa-spinner fa-spin"></i> Loading Kiro challenge statistics...
+            </div>
+        </div>
     </div>
 
     <!-- Workshop Occupation Breakdown Section -->
@@ -1431,9 +1457,136 @@ async function exportToGoogleSheet() {
     }
 }
 
+// Load Kiro statistics
+async function loadKiroStats() {
+    const container = document.getElementById('kiroStatsContainer');
+    const loadingIndicator = document.getElementById('kiroStatsLoading');
+    
+    if (!container) return;
+    
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+    }
+    
+    try {
+        const response = await fetch('/api/dashboard/kiro-stats');
+        const data = await response.json();
+        
+        if (data.success) {
+            renderKiroStats(data);
+        } else {
+            container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">Error loading Kiro statistics</div>';
+        }
+    } catch (error) {
+        console.error('Error loading Kiro stats:', error);
+        container.innerHTML = '<div class="text-center text-muted" style="padding: 2rem;">Error loading Kiro statistics</div>';
+    } finally {
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+    }
+}
+
+function renderKiroStats(data) {
+    const container = document.getElementById('kiroStatsContainer');
+    if (!container) return;
+    
+    const overall = data.overall;
+    const weeks = data.weeks;
+    
+    let html = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+                <div style="font-size: 2rem; font-weight: 700; color: #F79C22; margin-bottom: 0.5rem;">${overall.total_submissions.toLocaleString()}</div>
+                <div style="color: #6B7280; font-size: 0.875rem;">Total Submissions</div>
+            </div>
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+                <div style="font-size: 2rem; font-weight: 700; color: #3B82F6; margin-bottom: 0.5rem;">${overall.total_weeks.toLocaleString()}</div>
+                <div style="color: #6B7280; font-size: 0.875rem;">Active Weeks</div>
+            </div>
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+                <div style="font-size: 2rem; font-weight: 700; color: #10B981; margin-bottom: 0.5rem;">${overall.unique_participants.toLocaleString()}</div>
+                <div style="color: #6B7280; font-size: 0.875rem;">Unique Participants</div>
+            </div>
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+                <div style="font-size: 2rem; font-weight: 700; color: #10B981; margin-bottom: 0.5rem;">${overall.valid_blogs.toLocaleString()}</div>
+                <div style="color: #6B7280; font-size: 0.875rem;">Valid Blogs</div>
+                <div style="color: #9CA3AF; font-size: 0.75rem; margin-top: 0.25rem;">of ${overall.total_blogs.toLocaleString()} total</div>
+            </div>
+            <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+                <div style="font-size: 2rem; font-weight: 700; color: #3B82F6; margin-bottom: 0.5rem;">${overall.valid_github.toLocaleString()}</div>
+                <div style="color: #6B7280; font-size: 0.875rem;">Valid GitHub</div>
+                <div style="color: #9CA3AF; font-size: 0.75rem; margin-top: 0.25rem;">of ${overall.total_github.toLocaleString()} total</div>
+            </div>
+        </div>
+    `;
+    
+    if (weeks && weeks.length > 0) {
+        html += `
+            <div style="background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #E5E7EB;">
+                    <h3 style="margin: 0; color: #374151;"><i class="fas fa-calendar-week"></i> Week-by-Week Breakdown</h3>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table" style="margin: 0;">
+                        <thead>
+                            <tr>
+                                <th>Week</th>
+                                <th>Total Submissions</th>
+                                <th>Blog Submissions</th>
+                                <th>Valid Blogs</th>
+                                <th>GitHub Submissions</th>
+                                <th>Valid GitHub</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        
+        weeks.forEach(week => {
+            const blogPercent = week.blog_count > 0 ? ((week.valid_blog_count / week.blog_count) * 100).toFixed(1) : 0;
+            const githubPercent = week.github_count > 0 ? ((week.valid_github_count / week.github_count) * 100).toFixed(1) : 0;
+            
+            html += `
+                <tr>
+                    <td><strong>Week ${week.week_number}</strong></td>
+                    <td>${week.total_submissions.toLocaleString()}</td>
+                    <td>${week.blog_count.toLocaleString()}</td>
+                    <td>
+                        <span style="color: #10B981; font-weight: 600;">${week.valid_blog_count.toLocaleString()}</span>
+                        <span style="color: #9CA3AF; font-size: 0.875rem;">(${blogPercent}%)</span>
+                    </td>
+                    <td>${week.github_count.toLocaleString()}</td>
+                    <td>
+                        <span style="color: #3B82F6; font-weight: 600;">${week.valid_github_count.toLocaleString()}</span>
+                        <span style="color: #9CA3AF; font-size: 0.875rem;">(${githubPercent}%)</span>
+                    </td>
+                    <td>
+                        <a href="/kiro-submissions/week/${week.week_number}" class="btn btn-sm btn-info" style="text-decoration: none;">
+                            <i class="fas fa-eye"></i> View
+                        </a>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } else {
+        html += '<div class="text-center text-muted" style="padding: 2rem;">No Kiro challenge data available yet.</div>';
+    }
+    
+    container.innerHTML = html;
+}
+
 // Load demographics on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadDemographics();
+    loadKiroStats();
     
     // Attach export button event listener
     const exportBtn = document.getElementById('exportToSheetBtn');
