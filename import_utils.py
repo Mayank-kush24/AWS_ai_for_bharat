@@ -3,8 +3,10 @@ Import utilities for AWS AI for Bharat Tracking System
 Handles XLSX parsing, validation, and data mapping
 """
 import re
+import csv
+import os
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Union
 import openpyxl
 from openpyxl.utils import get_column_letter
 import logging
@@ -321,24 +323,137 @@ def normalize_string(value: Any) -> Optional[str]:
 
 
 # ============================================
-# XLSX Parsing Functions
+# File Reading Functions (Excel and CSV)
 # ============================================
 
-def read_xlsx_file(file_path: str) -> openpyxl.Workbook:
-    """Read XLSX file and return workbook"""
-    try:
-        workbook = openpyxl.load_workbook(file_path, data_only=True)
-        return workbook
-    except Exception as e:
-        raise ValueError(f"Failed to read XLSX file: {str(e)}")
+class CSVSheet:
+    """Wrapper class to make CSV data compatible with openpyxl sheet interface"""
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        self._headers = []
+        self._rows = []
+        self._load_csv()
+    
+    def _load_csv(self):
+        """Load CSV file into memory"""
+        try:
+            with open(self.file_path, 'r', encoding='utf-8-sig') as f:
+                # Try to detect delimiter
+                sample = f.read(1024)
+                f.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.reader(f, delimiter=delimiter)
+                self._headers = next(reader, [])
+                self._rows = list(reader)
+        except UnicodeDecodeError:
+            # Try with different encoding
+            with open(self.file_path, 'r', encoding='latin-1') as f:
+                sample = f.read(1024)
+                f.seek(0)
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+                
+                reader = csv.reader(f, delimiter=delimiter)
+                self._headers = next(reader, [])
+                self._rows = list(reader)
+    
+    def iter_rows(self, min_row: int = 1, max_row: Optional[int] = None, values_only: bool = False):
+        """Iterate over rows, compatible with openpyxl interface"""
+        # In openpyxl, row 1 is the header, rows 2+ are data
+        # min_row=1 means start from header, min_row=2 means start from first data row
+        
+        if min_row <= 1:
+            # Include header row (row 1)
+            if values_only:
+                yield self._headers
+            else:
+                yield [CSVCell(val) for val in self._headers]
+        
+        # Data rows: row 2 in openpyxl = index 0 in _rows
+        # So row N in openpyxl = index (N-2) in _rows
+        start_idx = max(0, min_row - 2)  # Convert to 0-based index for data rows
+        end_idx = len(self._rows) if max_row is None else min(max_row - 1, len(self._rows))
+        
+        for idx in range(start_idx, end_idx):
+            if idx < len(self._rows):
+                row_data = self._rows[idx]
+                if values_only:
+                    yield row_data
+                else:
+                    # Return cell-like objects
+                    yield [CSVCell(value) for value in row_data]
+    
+    @property
+    def max_row(self):
+        """Return maximum row number (1-based)"""
+        return len(self._rows) + 1  # +1 for header row
+    
+    def __getitem__(self, row_num):
+        """Get row by number (1-based, where 1 is header)"""
+        if row_num == 1:
+            return [CSVCell(val) for val in self._headers]
+        elif row_num > 1 and row_num <= len(self._rows) + 1:
+            return [CSVCell(val) for val in self._rows[row_num - 2]]
+        else:
+            return []
+
+
+class CSVCell:
+    """Wrapper class to make CSV cell compatible with openpyxl cell interface"""
+    def __init__(self, value):
+        self.value = value
+
+
+class CSVWorkbook:
+    """Wrapper class to make CSV compatible with openpyxl workbook interface"""
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        self.sheetnames = ['Sheet1']  # CSV files have one "sheet"
+        self._sheet = CSVSheet(file_path)
+    
+    def __getitem__(self, sheet_name: str):
+        """Get sheet by name"""
+        if sheet_name == 'Sheet1':
+            return self._sheet
+        raise KeyError(f"Sheet '{sheet_name}' not found")
+    
+    def close(self):
+        """Close workbook (no-op for CSV)"""
+        pass
+
+
+def read_xlsx_file(file_path: str) -> Union[openpyxl.Workbook, CSVWorkbook]:
+    """Read XLSX or CSV file and return workbook-like object"""
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    if file_ext == '.csv':
+        try:
+            return CSVWorkbook(file_path)
+        except Exception as e:
+            raise ValueError(f"Failed to read CSV file: {str(e)}")
+    else:
+        # Excel file (.xlsx, .xlsm, .xltx, .xltm)
+        try:
+            workbook = openpyxl.load_workbook(file_path, data_only=True)
+            return workbook
+        except Exception as e:
+            raise ValueError(f"Failed to read XLSX file: {str(e)}")
 
 
 def get_sheet_headers(sheet, max_row: int = 1) -> List[str]:
     """Extract headers from first row of sheet"""
     headers = []
-    for cell in sheet[1]:
-        value = cell.value
-        headers.append(str(value).strip() if value else "")
+    # Handle both openpyxl sheets and CSVSheet
+    if hasattr(sheet, '_headers'):
+        # CSVSheet object
+        headers = [str(h).strip() if h else "" for h in sheet._headers]
+    else:
+        # openpyxl sheet
+        for cell in sheet[1]:
+            value = cell.value
+            headers.append(str(value).strip() if value else "")
     return headers
 
 

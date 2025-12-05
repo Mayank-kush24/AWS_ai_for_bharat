@@ -728,6 +728,41 @@ class KiroSubmission:
         return [row['week_number'] for row in result] if result else []
     
     @staticmethod
+    def get_top_participants(week_number: int, limit: int = 10):
+        """Get top participants for a week based on valid GitHub and highest engagement (likes + comments)
+        
+        Args:
+            week_number: Week number to filter by
+            limit: Number of top participants to return
+            
+        Returns:
+            List of submission records sorted by engagement (likes + comments) descending
+        """
+        # Ensure limit is a valid integer
+        limit = int(limit) if limit else 10
+        if limit < 1:
+            limit = 10
+        
+        query = """
+            SELECT ks.*, 
+                   u.name, u.phone_number, u.country, u.state, u.city, 
+                   u.linkedin, u.gender, u.designation, u.occupation, 
+                   u.class_stream, u.degree_passout_year, u.date_of_birth,
+                   u.participated_in_academy_1_0, u.registration_date_time
+            FROM kiro_submission ks
+            LEFT JOIN user_pii u ON ks.email = u.email
+            WHERE ks.week_number = %s 
+                AND ks.github_valid = TRUE
+                AND (COALESCE(ks.likes, 0) + COALESCE(ks.comments, 0)) > 0
+            ORDER BY (COALESCE(ks.likes, 0) + COALESCE(ks.comments, 0)) DESC, ks.likes DESC, ks.comments DESC
+            LIMIT %s
+        """
+        print(f"[DEBUG] get_top_participants called with week_number={week_number}, limit={limit}")
+        result = db_manager.execute_query(query, (week_number, limit))
+        print(f"[DEBUG] get_top_participants returned {len(result) if result else 0} records")
+        return result
+    
+    @staticmethod
     def bulk_upsert(records: list, mode: str = 'upsert'):
         """Bulk upsert kiro submission records
         

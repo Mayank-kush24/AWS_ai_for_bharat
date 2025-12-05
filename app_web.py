@@ -2084,6 +2084,127 @@ def kiro_submissions_statistics(week_number):
         return jsonify({'error': str(e), 'success': False}), 500
 
 
+@app.route('/api/kiro-submissions/top-participants/<int:week_number>')
+@login_required
+@permission_required('kiro_submissions_list')
+def kiro_submissions_top_participants(week_number):
+    """Download top participants as CSV for a specific week"""
+    try:
+        # Get limit parameter - handle both string and int
+        limit_str = request.args.get('limit', '10')
+        try:
+            limit = int(limit_str)
+        except (ValueError, TypeError):
+            limit = 10
+        
+        if limit < 1 or limit > 1000:
+            limit = 10
+        
+        print(f"[DEBUG] Top Participants Download - Week: {week_number}, Limit: {limit}, Request args: {dict(request.args)}")
+        
+        # Get top participants
+        participants = KiroSubmission.get_top_participants(week_number, limit)
+        
+        print(f"[DEBUG] Retrieved {len(participants)} participants")
+        
+        # Create CSV
+        import csv
+        from io import StringIO
+        
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            'Rank',
+            'Email',
+            'Name',
+            'Phone Number',
+            'LinkedIn',
+            'Country',
+            'State',
+            'City',
+            'Gender',
+            'Designation',
+            'Occupation',
+            'Class/Stream',
+            'Degree Passout Year',
+            'Date of Birth',
+            'Participated in Academy 1.0',
+            'Registration Date Time',
+            'GitHub Link',
+            'Blog Link',
+            'Likes',
+            'Comments',
+            'Total Engagement',
+            'GitHub Valid',
+            'Blog Valid',
+            'Created At',
+            'Updated At'
+        ])
+        
+        # Write data rows
+        for idx, participant in enumerate(participants, start=1):
+            total_engagement = (participant.get('likes') or 0) + (participant.get('comments') or 0)
+            date_of_birth = participant.get('date_of_birth')
+            if date_of_birth:
+                if hasattr(date_of_birth, 'strftime'):
+                    date_of_birth_str = date_of_birth.strftime('%Y-%m-%d')
+                else:
+                    date_of_birth_str = str(date_of_birth)
+            else:
+                date_of_birth_str = ''
+            
+            writer.writerow([
+                idx,
+                participant.get('email', ''),
+                participant.get('name', ''),
+                participant.get('phone_number', ''),
+                participant.get('linkedin', ''),
+                participant.get('country', ''),
+                participant.get('state', ''),
+                participant.get('city', ''),
+                participant.get('gender', ''),
+                participant.get('designation', ''),
+                participant.get('occupation', ''),
+                participant.get('class_stream', ''),
+                participant.get('degree_passout_year', ''),
+                date_of_birth_str,
+                'Yes' if participant.get('participated_in_academy_1_0') else 'No',
+                participant.get('registration_date_time', '').strftime('%Y-%m-%d %H:%M:%S') if participant.get('registration_date_time') else '',
+                participant.get('github_link', ''),
+                participant.get('blog_link', ''),
+                participant.get('likes', 0),
+                participant.get('comments', 0),
+                total_engagement,
+                'Yes' if participant.get('github_valid') else 'No',
+                'Yes' if participant.get('valid') else 'No',
+                participant.get('created_at', '').strftime('%Y-%m-%d %H:%M:%S') if participant.get('created_at') else '',
+                participant.get('updated_at', '').strftime('%Y-%m-%d %H:%M:%S') if participant.get('updated_at') else ''
+            ])
+        
+        # Prepare response
+        csv_content = output.getvalue()
+        output.close()
+        
+        filename = f'kiro_week_{week_number}_top_{limit}_participants.csv'
+        
+        response = Response(
+            csv_content,
+            mimetype='text/csv',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'text/csv; charset=utf-8'
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
+        flash(f'Error generating CSV: {str(e)}', 'error')
+        return redirect(url_for('kiro_submissions_week', week_number=week_number))
+
+
 @app.route('/api/dashboard/kiro-stats')
 @login_required
 @permission_required('index')

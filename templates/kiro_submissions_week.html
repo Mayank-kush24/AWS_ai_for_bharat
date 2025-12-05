@@ -181,6 +181,26 @@
                 <div class="statistics-total" id="kiroGithubStatistics">
                     <!-- GitHub statistics will be inserted here -->
                 </div>
+                <!-- Top Participants Download Section -->
+                <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); min-width: 280px;">
+                    <h3 style="margin: 0 0 1rem 0; color: #374151; font-size: 1.125rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-trophy" style="color: #F79C22;"></i> Top Participants
+                    </h3>
+                    <p style="color: #6B7280; font-size: 0.875rem; margin-bottom: 1rem;">
+                        Download top participants with valid GitHub and highest engagement (likes + comments)
+                    </p>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">
+                            Number of Top Participants
+                        </label>
+                        <input type="number" id="topParticipantsCount" min="1" max="1000" value="10" 
+                               style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem;">
+                    </div>
+                    <button id="downloadTopParticipantsBtn" class="btn btn-primary" style="width: 100%;"
+                            onclick="downloadTopParticipants()">
+                        <i class="fas fa-download"></i> Download CSV
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -969,6 +989,79 @@ async function startValidation(type, url, buttonId, title) {
     } finally {
         validationReader = null;
     }
+}
+
+function downloadTopParticipants() {
+    const countInput = document.getElementById('topParticipantsCount');
+    let count = parseInt(countInput.value);
+    
+    // Validate input
+    if (isNaN(count) || count < 1) {
+        alert('Please enter a valid number (minimum 1)');
+        countInput.focus();
+        return;
+    }
+    
+    if (count > 1000) {
+        alert('Please enter a number between 1 and 1000');
+        countInput.focus();
+        return;
+    }
+    
+    const weekNumber = {{ week_number }};
+    // Add timestamp to prevent caching
+    const timestamp = new Date().getTime();
+    const url = `/api/kiro-submissions/top-participants/${weekNumber}?limit=${count}&_t=${timestamp}`;
+    
+    console.log('Downloading top participants:', { weekNumber, count, url });
+    
+    // Disable button during download
+    const btn = document.getElementById('downloadTopParticipantsBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Downloading...';
+    
+    // Use fetch to download the CSV with the correct limit
+    fetch(url, {
+        method: 'GET',
+        headers: {
+            'Accept': 'text/csv'
+        },
+        cache: 'no-cache'  // Prevent caching
+    })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+            }
+            return response.text();
+        })
+        .then(csvContent => {
+            // Create blob and download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const blobUrl = window.URL.createObjectURL(blob);
+            link.href = blobUrl;
+            link.download = `kiro_week_${weekNumber}_top_${count}_participants.csv`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(blobUrl);
+            }, 100);
+            
+            // Re-enable button
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        })
+        .catch(error => {
+            console.error('Download error:', error);
+            alert('Error downloading CSV: ' + error.message);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        });
 }
 
 async function loadKiroStatistics() {
