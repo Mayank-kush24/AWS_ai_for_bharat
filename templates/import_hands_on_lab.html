@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+
+{% block title %}Hands-on Lab Completion Import - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="import-advanced-container">
+    <div class="page-header">
+        <h1><i class="fas fa-flask"></i> Hands-on Lab Completion Proof Import</h1>
+        <p class="subtitle">Import hands-on lab completion proofs from Excel or CSV files</p>
+        <a href="{{ url_for('import_page') }}" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Back to Import
+        </a>
+    </div>
+
+    <!-- Step 1: File Upload -->
+    <div class="import-step" id="step1">
+        <div class="step-header">
+            <span class="step-number">1</span>
+            <h2>Upload File</h2>
+        </div>
+        <div class="step-content">
+            <div class="upload-area" id="fileUploadArea">
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                <div class="upload-content">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drag & drop your file here</p>
+                    <p class="upload-hint">or click to browse (XLSX, XLS, CSV)</p>
+                    <span class="file-name" id="fileName"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: Workshop Selection -->
+    <div class="import-step" id="step2" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">2</span>
+            <h2>Select Workshop</h2>
+        </div>
+        <div class="step-content">
+            <div class="workshop-selection">
+                <label for="workshopSelect">Select Workshop:</label>
+                <select id="workshopSelect" class="form-control">
+                    <option value="">-- Select Workshop --</option>
+                    <option value="Workshop 1">Workshop 1</option>
+                    <option value="Workshop 2">Workshop 2</option>
+                    <option value="Workshop 3">Workshop 3</option>
+                    <option value="Workshop 4">Workshop 4</option>
+                    <option value="Workshop 5">Workshop 5</option>
+                    <option value="Workshop 6">Workshop 6</option>
+                </select>
+                <small class="form-text text-muted">The workshop name will be auto-filled for all records</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Column Mapping -->
+    <div class="import-step" id="step3" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">3</span>
+            <h2>Map Columns</h2>
+        </div>
+        <div class="step-content">
+            <div class="mapping-info">
+                <p>Map your file columns to database fields. Check the boxes next to fields you want to use for matching/updating records.</p>
+            </div>
+            
+            <div class="import-mode-selection">
+                <label>Import Mode:</label>
+                <div class="mode-options">
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="create" checked>
+                        <span>Create Only</span>
+                        <small>Insert new records only</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="upsert">
+                        <span>Create & Update</span>
+                        <small>Insert new or update existing</small>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="importMode" value="update">
+                        <span>Update Only</span>
+                        <small>Update existing records only</small>
+                    </label>
+                </div>
+            </div>
+
+            <div class="column-mapping-container" id="columnMapping">
+                <!-- Column mappings will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 4: Preview & Import -->
+    <div class="import-step" id="step4" style="display: none;">
+        <div class="step-header">
+            <span class="step-number">4</span>
+            <h2>Preview & Import</h2>
+        </div>
+        <div class="step-content">
+            <div class="preview-section">
+                <h3>Preview (First 5 Rows)</h3>
+                <div class="preview-table-container" id="previewTable">
+                    <!-- Preview table will be generated here -->
+                </div>
+            </div>
+            
+            <div class="import-summary" id="importSummary">
+                <!-- Summary will be shown here -->
+            </div>
+            
+            <button class="btn btn-primary btn-lg" id="startImportBtn" onclick="handleImportClick(event)">
+                <i class="fas fa-play"></i> Start Import
+            </button>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="import-results" id="importResults" style="display: none;">
+        <div class="results-header">
+            <h2><i class="fas fa-chart-bar"></i> Import Results</h2>
+            <button class="btn btn-secondary" onclick="resetImport()">
+                <i class="fas fa-redo"></i> New Import
+            </button>
+        </div>
+        <div class="results-content" id="resultsContent">
+            <!-- Results will be displayed here -->
+        </div>
+    </div>
+</div>
+
+<script>
+let fileData = null;
+let columnMappings = {};
+let fileColumns = [];
+let previewData = [];
+let selectedWorkshop = '';
+
+// Database field definitions
+const labFields = {
+    email: { label: 'Email', required: true, canMatch: true },
+    name: { label: 'Name', required: true, canMatch: false },
+    problem_statement: { label: 'Problem Statement', required: false, canMatch: false },
+    hands_on_lab_proof_link: { label: 'Hands-on Lab Completion Proof (Link)', required: false, canMatch: false },
+    valid: { label: 'Valid (TRUE/FALSE)', required: false, canMatch: false },
+    assigned_to: { label: 'Assigned To', required: false, canMatch: false },
+    assigned_at: { label: 'Assigned At', required: false, canMatch: false },
+    blog_submission: { label: 'Blog Submission', required: false, canMatch: false },
+    remarks: { label: 'Remarks', required: false, canMatch: false }
+};
+
+// File upload handling
+const fileUploadArea = document.getElementById('fileUploadArea');
+const fileInput = document.getElementById('fileInput');
+const fileName = document.getElementById('fileName');
+const workshopSelect = document.getElementById('workshopSelect');
+
+fileUploadArea.addEventListener('click', () => fileInput.click());
+fileUploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.add('drag-over');
+});
+fileUploadArea.addEventListener('dragleave', () => {
+    fileUploadArea.classList.remove('drag-over');
+});
+fileUploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    fileUploadArea.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        fileInput.files = files;
+        handleFileSelect();
+    }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+workshopSelect.addEventListener('change', function() {
+    selectedWorkshop = this.value;
+    if (selectedWorkshop && fileColumns.length > 0) {
+        loadColumnMapping();
+        document.getElementById('step3').style.display = 'block';
+        updatePreview();
+    }
+});
+
+function handleFileSelect() {
+    if (!fileInput || !fileInput.files || !fileInput.files.length) {
+        console.error('No file selected');
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    fileName.textContent = file.name;
+    
+    console.log('File selected:', file.name);
+    
+    // Upload file to get column info
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Show loading state
+    fileName.textContent = file.name + ' (Loading...)';
+    
+    fetch('/api/import/preview', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        console.log('Preview response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Preview data:', data);
+        if (data.success) {
+            fileColumns = data.columns || [];
+            fileData = data;
+            previewData = data.preview || [];
+            fileName.textContent = file.name;
+            document.getElementById('step2').style.display = 'block';
+            showFlashMessage('File loaded successfully! Select workshop to continue.', 'success');
+        } else {
+            fileName.textContent = file.name;
+            showFlashMessage('Error: ' + (data.error || 'Failed to read file'), 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Preview error:', error);
+        fileName.textContent = file.name;
+        showFlashMessage('Error: ' + error.message, 'error');
+    });
+}
+
+function loadColumnMapping() {
+    const mappingContainer = document.getElementById('columnMapping');
+    mappingContainer.innerHTML = '';
+    
+    // Create mapping table
+    const table = document.createElement('table');
+    table.className = 'mapping-table';
+    
+    // Header
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Database Field</th>
+            <th>File Column</th>
+            <th>Use for Matching</th>
+            <th>Required</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    // Body
+    const tbody = document.createElement('tbody');
+    
+    for (const [fieldKey, fieldInfo] of Object.entries(labFields)) {
+        const row = document.createElement('tr');
+        row.className = fieldInfo.required ? 'required-field' : '';
+        
+        // Database field name
+        const fieldCell = document.createElement('td');
+        fieldCell.innerHTML = `
+            <strong>${fieldInfo.label}</strong>
+            ${fieldInfo.required ? '<span class="required-badge">Required</span>' : ''}
+        `;
+        
+        // Column selector
+        const columnCell = document.createElement('td');
+        const select = document.createElement('select');
+        select.className = 'form-control column-select';
+        select.dataset.field = fieldKey;
+        select.innerHTML = '<option value="">-- Skip --</option>';
+        
+        fileColumns.forEach(col => {
+            const option = document.createElement('option');
+            option.value = col;
+            option.textContent = col;
+            // Auto-match by name similarity
+            const fieldLower = fieldKey.toLowerCase().replace(/_/g, ' ');
+            const colLower = col.toLowerCase();
+            if (fieldLower.includes(colLower) || colLower.includes(fieldLower) ||
+                fieldKey.toLowerCase().includes(colLower.replace(/\s+/g, '_')) ||
+                colLower.includes(fieldKey.toLowerCase())) {
+                option.selected = true;
+                columnMappings[fieldKey] = col;
+            }
+            select.appendChild(option);
+        });
+        
+        select.addEventListener('change', function() {
+            columnMappings[fieldKey] = this.value || null;
+            updatePreview();
+        });
+        
+        columnCell.appendChild(select);
+        
+        // Match checkbox
+        const matchCell = document.createElement('td');
+        if (fieldInfo.canMatch) {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'match-checkbox';
+            checkbox.dataset.field = fieldKey;
+            checkbox.checked = fieldKey === 'email';
+            checkbox.addEventListener('change', updatePreview);
+            matchCell.appendChild(checkbox);
+        } else {
+            matchCell.innerHTML = '<span class="text-muted">-</span>';
+        }
+        
+        // Required indicator
+        const requiredCell = document.createElement('td');
+        requiredCell.innerHTML = fieldInfo.required 
+            ? '<span class="badge badge-danger">Required</span>'
+            : '<span class="text-muted">Optional</span>';
+        
+        row.appendChild(fieldCell);
+        row.appendChild(columnCell);
+        row.appendChild(matchCell);
+        row.appendChild(requiredCell);
+        tbody.appendChild(row);
+    }
+    
+    table.appendChild(tbody);
+    mappingContainer.appendChild(table);
+    
+    document.getElementById('step4').style.display = 'block';
+    updatePreview();
+}
+
+function updatePreview() {
+    if (!previewData || previewData.length === 0) return;
+    
+    const previewContainer = document.getElementById('previewTable');
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    let html = '<table class="data-table"><thead><tr>';
+    html += '<th>Workshop Name (Auto-filled)</th>';
+    
+    Object.entries(labFields).forEach(([key, info]) => {
+        if (columnMappings[key]) {
+            html += `<th>${info.label}${matchFields.includes(key) ? ' <span class="match-badge">Match</span>' : ''}</th>`;
+        }
+    });
+    html += '</tr></thead><tbody>';
+    
+    previewData.slice(0, 5).forEach(row => {
+        html += '<tr>';
+        html += `<td><strong>${selectedWorkshop}</strong></td>`;
+        Object.entries(labFields).forEach(([key, info]) => {
+            if (columnMappings[key]) {
+                const colIndex = fileColumns.indexOf(columnMappings[key]);
+                const value = colIndex >= 0 ? (row[colIndex] || '') : '';
+                html += `<td>${value}</td>`;
+            }
+        });
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    previewContainer.innerHTML = html;
+    
+    updateSummary();
+}
+
+function updateSummary() {
+    const importMode = document.querySelector('input[name="importMode"]:checked').value;
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    const required = Object.entries(labFields).filter(([key, info]) => info.required).map(([key]) => key);
+    const mapped = required.filter(key => columnMappings[key]);
+    
+    let summary = `
+        <div class="summary-card">
+            <h4>Import Configuration</h4>
+            <ul class="summary-list">
+                <li><strong>Workshop:</strong> ${selectedWorkshop}</li>
+                <li><strong>Mode:</strong> ${importMode === 'create' ? 'Create Only' : importMode === 'upsert' ? 'Create & Update' : 'Update Only'}</li>
+                <li><strong>Match Fields:</strong> ${matchFields.length > 0 ? matchFields.join(', ') : 'None'}</li>
+                <li><strong>Rows:</strong> ${previewData.length}</li>
+                <li><strong>Required Mapped:</strong> ${mapped.length}/${required.length}</li>
+            </ul>
+            ${mapped.length < required.length ? '<div class="alert alert-warning">⚠️ Some required fields are not mapped!</div>' : ''}
+            ${matchFields.length === 0 && importMode !== 'create' ? '<div class="alert alert-danger">⚠️ No match fields selected!</div>' : ''}
+        </div>
+    `;
+    
+    document.getElementById('importSummary').innerHTML = summary;
+}
+
+async function handleImportClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (!selectedWorkshop) {
+        showFlashMessage('Please select a workshop!', 'error');
+        return false;
+    }
+    
+    const importMode = document.querySelector('input[name="importMode"]:checked');
+    if (!importMode) {
+        showFlashMessage('Please select an import mode!', 'error');
+        return false;
+    }
+    
+    const mode = importMode.value;
+    const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
+        .map(cb => cb.dataset.field);
+    
+    // Validate required fields
+    const required = Object.entries(labFields).filter(([key, info]) => info.required).map(([key]) => key);
+    const allMapped = required.every(key => columnMappings[key]);
+    
+    if (!allMapped) {
+        showFlashMessage('Please map all required fields!', 'error');
+        return false;
+    }
+    
+    // Validate match fields
+    if (mode !== 'create' && matchFields.length === 0) {
+        showFlashMessage('Please select at least one match field!', 'error');
+        return false;
+    }
+    
+    const importConfig = {
+        workshop_name: selectedWorkshop,
+        mode: mode,
+        mappings: columnMappings,
+        match_fields: matchFields
+    };
+    
+    console.log('Import config:', importConfig);
+    
+    const importBtn = document.getElementById('startImportBtn');
+    const originalHTML = importBtn.innerHTML;
+    importBtn.disabled = true;
+    importBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importing...';
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('config', JSON.stringify(importConfig));
+    
+    try {
+        console.log('Sending import request...');
+        const response = await fetch('/api/import/hands-on-lab', {
+            method: 'POST',
+            body: formData
+        });
+        
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Error response:', errorText);
+            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Import result:', result);
+        
+        if (result.success) {
+            displayResults(result);
+            const totalErrors = (result.summary?.errors || 0) + (result.errors?.length || 0);
+            if (totalErrors > 0) {
+                showFlashMessage(`Import completed with ${totalErrors} error(s). Check results below.`, 'warning');
+            } else {
+                showFlashMessage('Import completed successfully!', 'success');
+            }
+        } else {
+            const errorMsg = result.error || 'Unknown error';
+            console.error('Import failed:', errorMsg);
+            showFlashMessage('Import failed: ' + errorMsg, 'error');
+        }
+    } catch (error) {
+        console.error('Import error:', error);
+        showFlashMessage('Error: ' + error.message, 'error');
+    } finally {
+        importBtn.disabled = false;
+        importBtn.innerHTML = originalHTML;
+    }
+    
+    return false;
+}
+
+function displayResults(result) {
+    const resultsDiv = document.getElementById('importResults');
+    const contentDiv = document.getElementById('resultsContent');
+    
+    const totalErrors = (result.summary?.errors || 0) + (result.errors?.length || 0);
+    const hasErrors = totalErrors > 0;
+    
+    let html = `
+        <div class="result-summary">
+            <h3>Import Summary</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="summary-label">Rows Processed</span>
+                    <span class="summary-value">${result.summary?.rows || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Created</span>
+                    <span class="summary-value text-success">${result.summary?.created || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Updated</span>
+                    <span class="summary-value text-warning">${result.summary?.updated || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Skipped</span>
+                    <span class="summary-value text-info">${result.summary?.skipped || 0}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Total Errors</span>
+                    <span class="summary-value text-danger">${totalErrors}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (hasErrors) {
+        html += `
+            <div class="result-errors">
+                <h3><i class="fas fa-exclamation-triangle"></i> Errors and Warnings</h3>
+                <div class="errors-container">
+                    <div class="errors-list">
+                        ${(result.errors || []).slice(0, 100).map((err, idx) => `
+                            <div class="error-item">
+                                <span class="error-number">${idx + 1}</span>
+                                <span class="error-message">${escapeHtml(err)}</span>
+                            </div>
+                        `).join('')}
+                        ${(result.errors || []).length > 100 ? `
+                            <div class="error-item error-info">
+                                <span class="error-message">... and ${(result.errors || []).length - 100} more errors</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+    resultsDiv.style.display = 'block';
+    resultsDiv.scrollIntoView({ behavior: 'smooth' });
+}
+
+function resetImport() {
+    fileData = null;
+    columnMappings = {};
+    fileColumns = [];
+    previewData = [];
+    selectedWorkshop = '';
+    
+    fileInput.value = '';
+    fileName.textContent = '';
+    workshopSelect.value = '';
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step3').style.display = 'none';
+    document.getElementById('step4').style.display = 'none';
+    document.getElementById('importResults').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showFlashMessage(message, type) {
+    console.log('Flash message:', type, message);
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) {
+        alert(message);
+        return;
+    }
+    
+    const flashDiv = document.createElement('div');
+    flashDiv.className = `flash-message flash-${type}`;
+    flashDiv.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'warning' ? 'exclamation-triangle' : 'exclamation-circle'}"></i>
+        <span>${message}</span>
+        <button class="flash-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+    
+    const flashMessages = mainContent.querySelector('.flash-messages');
+    if (flashMessages) {
+        flashMessages.appendChild(flashDiv);
+    } else {
+        const flashContainer = document.createElement('div');
+        flashContainer.className = 'flash-messages';
+        flashContainer.appendChild(flashDiv);
+        mainContent.insertBefore(flashContainer, mainContent.firstChild);
+    }
+    
+    setTimeout(() => {
+        if (flashDiv.parentElement) {
+            flashDiv.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
+

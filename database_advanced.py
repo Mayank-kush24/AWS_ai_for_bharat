@@ -327,6 +327,10 @@ def bulk_upsert_advanced_project_submission(records: list, mode: str = 'upsert',
     
     if match_fields is None:
         match_fields = ['workshop_name', 'email']
+    else:
+        # Always ensure workshop_name is included since it's part of the primary key
+        if 'workshop_name' not in match_fields:
+            match_fields = ['workshop_name'] + match_fields
     
     conn = None
     inserted = 0
@@ -435,6 +439,10 @@ def bulk_upsert_advanced_aws_team_building(records: list, mode: str = 'upsert', 
     
     if match_fields is None:
         match_fields = ['workshop_name', 'email']
+    else:
+        # Always ensure workshop_name is included since it's part of the primary key
+        if 'workshop_name' not in match_fields:
+            match_fields = ['workshop_name'] + match_fields
     
     conn = None
     inserted = 0
@@ -533,6 +541,10 @@ def bulk_upsert_advanced_verification(records: list, mode: str = 'upsert', match
     
     if match_fields is None:
         match_fields = ['workshop_name', 'email']
+    else:
+        # Always ensure workshop_name is included since it's part of the primary key
+        if 'workshop_name' not in match_fields:
+            match_fields = ['workshop_name'] + match_fields
     
     conn = None
     inserted = 0
@@ -628,6 +640,134 @@ def bulk_upsert_advanced_verification(records: list, mode: str = 'upsert', match
                         record.get('blog'),
                         record.get('blog_valid', False),
                         record.get('team_id')
+                    ))
+                    inserted += cursor.rowcount
+        
+        conn.commit()
+        return {"inserted": inserted, "updated": updated}
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if conn:
+            db_manager.return_connection(conn)
+
+
+def bulk_upsert_advanced_hands_on_lab_completion(records: list, mode: str = 'upsert', match_fields: list = None):
+    """Advanced bulk upsert for Hands-on Lab Completion"""
+    if not records:
+        return {"inserted": 0, "updated": 0}
+    
+    if match_fields is None:
+        match_fields = ['workshop_name', 'email']
+    else:
+        # Always ensure workshop_name is included since it's part of the primary key
+        if 'workshop_name' not in match_fields:
+            match_fields = ['workshop_name'] + match_fields
+    
+    conn = None
+    inserted = 0
+    updated = 0
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        for record in records:
+            match_conditions, match_values = build_match_query('hands_on_lab_completion', match_fields, record)
+            
+            if not match_conditions:
+                continue
+            
+            check_query = f"SELECT workshop_name, email FROM hands_on_lab_completion WHERE {' AND '.join(match_conditions)}"
+            cursor.execute(check_query, tuple(match_values))
+            exists = cursor.fetchone()
+            
+            if mode == 'create':
+                if not exists:
+                    insert_query = """
+                        INSERT INTO hands_on_lab_completion (
+                            workshop_name, email, name, problem_statement, hands_on_lab_proof_link,
+                            valid, assigned_to, assigned_at, blog_submission, remarks
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(insert_query, (
+                        record.get('workshop_name'),
+                        record.get('email'),
+                        record.get('name'),
+                        record.get('problem_statement'),
+                        record.get('hands_on_lab_proof_link'),
+                        record.get('valid', False),
+                        record.get('assigned_to'),
+                        record.get('assigned_at'),
+                        record.get('blog_submission'),
+                        record.get('remarks')
+                    ))
+                    inserted += cursor.rowcount
+            
+            elif mode == 'update':
+                if exists:
+                    where_clause = ' AND '.join(match_conditions)
+                    update_query = f"""
+                        UPDATE hands_on_lab_completion SET
+                            name = %s, problem_statement = %s, hands_on_lab_proof_link = %s,
+                            valid = %s, assigned_to = %s, assigned_at = %s,
+                            blog_submission = %s, remarks = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE {where_clause}
+                    """
+                    update_values = [
+                        record.get('name'),
+                        record.get('problem_statement'),
+                        record.get('hands_on_lab_proof_link'),
+                        record.get('valid', False),
+                        record.get('assigned_to'),
+                        record.get('assigned_at'),
+                        record.get('blog_submission'),
+                        record.get('remarks')
+                    ] + match_values
+                    cursor.execute(update_query, tuple(update_values))
+                    updated += cursor.rowcount
+            
+            elif mode == 'upsert':
+                if exists:
+                    where_clause = ' AND '.join(match_conditions)
+                    update_query = f"""
+                        UPDATE hands_on_lab_completion SET
+                            name = %s, problem_statement = %s, hands_on_lab_proof_link = %s,
+                            valid = %s, assigned_to = %s, assigned_at = %s,
+                            blog_submission = %s, remarks = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE {where_clause}
+                    """
+                    update_values = [
+                        record.get('name'),
+                        record.get('problem_statement'),
+                        record.get('hands_on_lab_proof_link'),
+                        record.get('valid', False),
+                        record.get('assigned_to'),
+                        record.get('assigned_at'),
+                        record.get('blog_submission'),
+                        record.get('remarks')
+                    ] + match_values
+                    cursor.execute(update_query, tuple(update_values))
+                    updated += cursor.rowcount
+                else:
+                    insert_query = """
+                        INSERT INTO hands_on_lab_completion (
+                            workshop_name, email, name, problem_statement, hands_on_lab_proof_link,
+                            valid, assigned_to, assigned_at, blog_submission, remarks
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(insert_query, (
+                        record.get('workshop_name'),
+                        record.get('email'),
+                        record.get('name'),
+                        record.get('problem_statement'),
+                        record.get('hands_on_lab_proof_link'),
+                        record.get('valid', False),
+                        record.get('assigned_to'),
+                        record.get('assigned_at'),
+                        record.get('blog_submission'),
+                        record.get('remarks')
                     ))
                     inserted += cursor.rowcount
         

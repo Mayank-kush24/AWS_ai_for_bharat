@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block title %}Hands-on Lab Completion Proof - AWS AI for Bharat{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-header">
+        <h1><i class="fas fa-flask"></i> Hands-on Lab Completion Proof</h1>
+        <a href="{{ url_for('import_hands_on_lab') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Import Data
+        </a>
+    </div>
+
+    <!-- Workshop Tabs -->
+    <div class="workshop-tabs" style="margin-bottom: 1.5rem;">
+        <button class="workshop-tab active" data-workshop="all" onclick="loadWorkshopData('all')">
+            <i class="fas fa-th"></i> All Workshops
+        </button>
+        {% for i in range(1, 7) %}
+        <button class="workshop-tab" data-workshop="Workshop {{ i }}" onclick="loadWorkshopData('Workshop {{ i }}')">
+            <i class="fas fa-graduation-cap"></i> Workshop {{ i }}
+        </button>
+        {% endfor %}
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="text-center" style="padding: 3rem;">
+        <i class="fas fa-spinner fa-spin fa-2x"></i>
+        <p style="margin-top: 1rem;">Loading data...</p>
+    </div>
+
+    <!-- Content Area -->
+    <div id="contentArea" style="display: none;">
+        <!-- Search and Filters -->
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1.5rem;">
+            <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+                <div style="flex: 1; min-width: 300px;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Search</label>
+                    <div style="position: relative;">
+                        <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none;"></i>
+                        <input type="text" id="searchInput" placeholder="Search by email, name, problem statement..." 
+                               style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem;">
+                    </div>
+                </div>
+                <div style="min-width: 180px;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Status</label>
+                    <select id="filterStatus" style="width: 100%; padding: 0.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem;">
+                        <option value="all">All</option>
+                        <option value="valid">Valid</option>
+                        <option value="invalid">Invalid</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div id="statistics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <!-- Statistics will be populated here -->
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Workshop</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Problem Statement</th>
+                        <th>Proof Link</th>
+                        <th>Valid</th>
+                        <th>Assigned To</th>
+                        <th>Assigned At</th>
+                        <th>Blog Submission</th>
+                        <th>Remarks</th>
+                        <th>Created At</th>
+                    </tr>
+                </thead>
+                <tbody id="dataTableBody">
+                    <!-- Data will be populated here -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="text-center text-muted" style="padding: 3rem; display: none;">
+            <i class="fas fa-inbox fa-3x" style="margin-bottom: 1rem; opacity: 0.3;"></i>
+            <p>No data found for this workshop.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allData = [];
+let currentWorkshop = 'all';
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadWorkshopData('all');
+    
+    // Search functionality
+    const searchInput = document.getElementById('searchInput');
+    const filterStatus = document.getElementById('filterStatus');
+    
+    if (searchInput) {
+        searchInput.addEventListener('input', filterData);
+    }
+    if (filterStatus) {
+        filterStatus.addEventListener('change', filterData);
+    }
+});
+
+function loadWorkshopData(workshopName) {
+    currentWorkshop = workshopName;
+    
+    // Update active tab
+    document.querySelectorAll('.workshop-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelector(`[data-workshop="${workshopName}"]`).classList.add('active');
+    
+    // Show loading
+    document.getElementById('loadingState').style.display = 'block';
+    document.getElementById('contentArea').style.display = 'none';
+    
+    if (workshopName === 'all') {
+        // Load all workshops
+        Promise.all([
+            fetch('/api/hands-on-lab-completion/Workshop 1').then(r => r.json()),
+            fetch('/api/hands-on-lab-completion/Workshop 2').then(r => r.json()),
+            fetch('/api/hands-on-lab-completion/Workshop 3').then(r => r.json()),
+            fetch('/api/hands-on-lab-completion/Workshop 4').then(r => r.json()),
+            fetch('/api/hands-on-lab-completion/Workshop 5').then(r => r.json()),
+            fetch('/api/hands-on-lab-completion/Workshop 6').then(r => r.json())
+        ])
+        .then(results => {
+            allData = [];
+            results.forEach(result => {
+                if (result.success && result.data) {
+                    allData = allData.concat(result.data);
+                }
+            });
+            displayData();
+        })
+        .catch(error => {
+            console.error('Error loading data:', error);
+            document.getElementById('loadingState').style.display = 'none';
+            alert('Error loading data: ' + error.message);
+        });
+    } else {
+        // Load specific workshop
+        fetch(`/api/hands-on-lab-completion/${encodeURIComponent(workshopName)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allData = data.data || [];
+                    displayData();
+                } else {
+                    throw new Error(data.error || 'Failed to load data');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading data:', error);
+                document.getElementById('loadingState').style.display = 'none';
+                alert('Error loading data: ' + error.message);
+            });
+    }
+}
+
+function displayData() {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('contentArea').style.display = 'block';
+    
+    // Calculate statistics
+    const total = allData.length;
+    const valid = allData.filter(d => d.valid).length;
+    const invalid = total - valid;
+    
+    // Display statistics
+    const statsHtml = `
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="font-size: 0.875rem; color: #6B7280; margin-bottom: 0.5rem;">Total</div>
+            <div style="font-size: 1.5rem; font-weight: 600; color: #111827;">${total}</div>
+        </div>
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="font-size: 0.875rem; color: #6B7280; margin-bottom: 0.5rem;">Valid</div>
+            <div style="font-size: 1.5rem; font-weight: 600; color: #10B981;">${valid}</div>
+        </div>
+        <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <div style="font-size: 0.875rem; color: #6B7280; margin-bottom: 0.5rem;">Invalid</div>
+            <div style="font-size: 1.5rem; font-weight: 600; color: #EF4444;">${invalid}</div>
+        </div>
+    `;
+    document.getElementById('statistics').innerHTML = statsHtml;
+    
+    // Filter and display data
+    filterData();
+}
+
+function filterData() {
+    const searchTerm = (document.getElementById('searchInput').value || '').toLowerCase();
+    const statusFilter = document.getElementById('filterStatus').value;
+    
+    let filtered = allData;
+    
+    // Apply search filter
+    if (searchTerm) {
+        filtered = filtered.filter(item => {
+            const searchable = [
+                item.email || '',
+                item.name || '',
+                item.problem_statement || '',
+                item.remarks || ''
+            ].join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+        });
+    }
+    
+    // Apply status filter
+    if (statusFilter !== 'all') {
+        filtered = filtered.filter(item => {
+            if (statusFilter === 'valid') {
+                return item.valid === true;
+            } else {
+                return !item.valid;
+            }
+        });
+    }
+    
+    // Display filtered data
+    const tbody = document.getElementById('dataTableBody');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.style.display = 'block';
+        return;
+    }
+    
+    emptyState.style.display = 'none';
+    
+    tbody.innerHTML = filtered.map(item => {
+        const validBadge = item.valid 
+            ? '<span class="badge badge-success">Valid</span>'
+            : '<span class="badge badge-danger">Invalid</span>';
+        
+        const proofLink = item.hands_on_lab_proof_link
+            ? `<a href="${escapeHtml(item.hands_on_lab_proof_link)}" target="_blank" title="${escapeHtml(item.hands_on_lab_proof_link)}"><i class="fas fa-external-link-alt"></i> Link</a>`
+            : '-';
+        
+        const blogLink = item.blog_submission
+            ? `<a href="${escapeHtml(item.blog_submission)}" target="_blank" title="${escapeHtml(item.blog_submission)}"><i class="fas fa-external-link-alt"></i> Link</a>`
+            : '-';
+        
+        const assignedAt = item.assigned_at 
+            ? new Date(item.assigned_at).toLocaleString()
+            : '-';
+        
+        const createdAt = item.created_at 
+            ? new Date(item.created_at).toLocaleString()
+            : '-';
+        
+        return `
+            <tr>
+                <td><strong>${escapeHtml(item.workshop_name || '')}</strong></td>
+                <td>${escapeHtml(item.name || '')}</td>
+                <td>${escapeHtml(item.email || '')}</td>
+                <td>${escapeHtml(item.problem_statement || '-')}</td>
+                <td>${proofLink}</td>
+                <td>${validBadge}</td>
+                <td>${escapeHtml(item.assigned_to || '-')}</td>
+                <td>${assignedAt}</td>
+                <td>${blogLink}</td>
+                <td>${escapeHtml(item.remarks || '-')}</td>
+                <td>${createdAt}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
+

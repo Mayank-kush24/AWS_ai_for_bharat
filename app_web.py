@@ -23,7 +23,8 @@ from database_advanced import (
     bulk_upsert_advanced_form_response,
     bulk_upsert_advanced_project_submission,
     bulk_upsert_advanced_aws_team_building,
-    bulk_upsert_advanced_verification
+    bulk_upsert_advanced_verification,
+    bulk_upsert_advanced_hands_on_lab_completion
 )
 from google_sheets_utils import GoogleSheetsExporter
 
@@ -1346,6 +1347,39 @@ def blog_submissions_list():
     except Exception as e:
         flash(f'Error loading submissions: {str(e)}', 'error')
         return render_template('project_submissions_list.html', submissions=[])
+
+
+@app.route('/hands-on-lab-completion')
+@login_required
+@permission_required('import_advanced')
+def hands_on_lab_completion_list():
+    """List all hands-on lab completion proofs with workshop tabs"""
+    return render_template('hands_on_lab_completion_list.html')
+
+
+@app.route('/api/hands-on-lab-completion/<workshop_name>')
+@login_required
+@permission_required('import_advanced')
+def get_hands_on_lab_completion(workshop_name):
+    """Get hands-on lab completion data for a specific workshop"""
+    try:
+        query = """
+            SELECT 
+                workshop_name, email, name, problem_statement, hands_on_lab_proof_link,
+                valid, assigned_to, assigned_at, blog_submission, remarks,
+                created_at, updated_at
+            FROM hands_on_lab_completion
+            WHERE workshop_name = %s
+            ORDER BY created_at DESC
+        """
+        results = db_manager.execute_query(query, (workshop_name,))
+        return jsonify({
+            'success': True,
+            'workshop_name': workshop_name,
+            'data': results
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
 
 
 @app.route('/blog-submissions/create', methods=['GET', 'POST'])
@@ -3012,7 +3046,13 @@ def import_advanced():
                             elif table_name == 'aws_team_building':
                                 single_result = bulk_upsert_advanced_aws_team_building([record], import_mode, match_fields)
                             elif table_name == 'project_submission':
-                                single_result = bulk_upsert_advanced_project_submission([record], import_mode, match_fields)
+                                # Ensure workshop_name is always in match_fields since it's part of the primary key
+                                project_match_fields = match_fields
+                                if project_match_fields and 'workshop_name' not in project_match_fields:
+                                    project_match_fields = ['workshop_name'] + project_match_fields
+                                elif not project_match_fields:
+                                    project_match_fields = ['workshop_name', 'email']
+                                single_result = bulk_upsert_advanced_project_submission([record], import_mode, project_match_fields)
                             elif table_name == 'verification':
                                 single_result = bulk_upsert_advanced_verification([record], import_mode, match_fields)
                             else:
@@ -3273,6 +3313,12 @@ def import_master():
                 
                 # Import project records
                 if project_records:
+                    # Ensure workshop_name is always in match_fields since it's part of the primary key
+                    if project_match_fields and 'workshop_name' not in project_match_fields:
+                        project_match_fields = ['workshop_name'] + project_match_fields
+                    elif not project_match_fields:
+                        project_match_fields = ['workshop_name', 'email']
+                    
                     for record in project_records:
                         try:
                             single_result = bulk_upsert_advanced_project_submission([record], import_mode, project_match_fields)
@@ -3348,6 +3394,14 @@ def internal_error(error):
 def import_kiro_page():
     """Kiro data import page"""
     return render_template('import_kiro.html')
+
+
+@app.route('/import/hands-on-lab')
+@login_required
+@permission_required('import_advanced')
+def import_hands_on_lab():
+    """Hands-on Lab Completion Import page"""
+    return render_template('import_hands_on_lab.html')
 
 
 @app.route('/api/import/kiro/detect-sheets', methods=['POST'])
@@ -3628,6 +3682,171 @@ def import_kiro_process():
                 'errors': errors,  # Show all errors
                 'error_count': len(errors),
                 'mode': import_mode
+            })
+        except Exception as e:
+            # Clean up temp file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+            return jsonify({'error': str(e), 'success': False}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+@app.route('/api/import/hands-on-lab', methods=['POST'])
+@login_required
+@permission_required('import_advanced')
+def import_hands_on_lab_process():
+    """Process Hands-on Lab Completion import"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided', 'success': False}), 400
+        
+        file = request.files['file']
+        config_str = request.form.get('config', '{}')
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected', 'success': False}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Invalid file type', 'success': False}), 400
+        
+        # Parse config
+        try:
+            config = json.loads(config_str)
+        except Exception as e:
+            return jsonify({'error': f'Invalid configuration: {str(e)}', 'success': False}), 400
+        
+        workshop_name = config.get('workshop_name')
+        mappings = config.get('mappings', {})
+        match_fields = config.get('match_fields', [])
+        import_mode = config.get('mode', 'upsert')
+        
+        if not workshop_name:
+            return jsonify({'error': 'Missing workshop_name', 'success': False}), 400
+        
+        if import_mode not in ['create', 'update', 'upsert']:
+            return jsonify({'error': 'Invalid import mode. Must be "create", "update", or "upsert"', 'success': False}), 400
+        
+        # Ensure workshop_name is in match_fields
+        if match_fields and 'workshop_name' not in match_fields:
+            match_fields = ['workshop_name'] + match_fields
+        elif not match_fields:
+            match_fields = ['workshop_name', 'email']
+        
+        # Save file temporarily
+        filename = secure_filename(file.filename)
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        file.save(file_path)
+        
+        # Process import
+        try:
+            from import_utils import read_xlsx_file, get_sheet_headers, validate_email, parse_datetime, normalize_string, coerce_boolean
+            
+            workbook = read_xlsx_file(file_path)
+            sheet = workbook[workbook.sheetnames[0]]
+            headers = get_sheet_headers(sheet)
+            
+            # Build column index map
+            column_index_map = {}
+            for db_field, file_column in mappings.items():
+                if file_column and file_column in headers:
+                    column_index_map[db_field] = headers.index(file_column)
+            
+            # Process rows
+            records = []
+            errors = []
+            created = 0
+            updated = 0
+            skipped = 0
+            
+            for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                if not any(cell for cell in row):
+                    continue
+                
+                try:
+                    record = {
+                        'workshop_name': workshop_name,  # Auto-fill
+                        'email': None,
+                        'name': None,
+                        'problem_statement': None,
+                        'hands_on_lab_proof_link': None,
+                        'valid': False,
+                        'assigned_to': None,
+                        'assigned_at': None,
+                        'blog_submission': None,
+                        'remarks': None
+                    }
+                    
+                    for db_field, col_index in column_index_map.items():
+                        if col_index < len(row):
+                            value = row[col_index]
+                            if db_field == 'valid':
+                                # Handle TRUE/FALSE in capital letters
+                                if isinstance(value, str):
+                                    record[db_field] = value.upper() == 'TRUE'
+                                else:
+                                    record[db_field] = coerce_boolean(value)
+                            elif db_field == 'assigned_at':
+                                if value:
+                                    parsed_dt = parse_datetime(value)
+                                    record[db_field] = parsed_dt
+                            else:
+                                record[db_field] = normalize_string(value)
+                    
+                    # Validate required
+                    if not record.get('email') or not record.get('name'):
+                        errors.append(f"Row {row_num}: Missing email or name")
+                        skipped += 1
+                        continue
+                    
+                    if not validate_email(record['email']):
+                        errors.append(f"Row {row_num}: Invalid email: {record['email']}")
+                        skipped += 1
+                        continue
+                    
+                    record['email'] = record['email'].lower().strip()
+                    records.append(record)
+                    
+                except Exception as e:
+                    errors.append(f"Row {row_num}: {str(e)}")
+                    skipped += 1
+                    continue
+            
+            workbook.close()
+            
+            # Import to database
+            if records:
+                try:
+                    single_result = bulk_upsert_advanced_hands_on_lab_completion(records, import_mode, match_fields)
+                    created = single_result.get('inserted', 0)
+                    updated = single_result.get('updated', 0)
+                except Exception as e:
+                    error_msg = f"Database error: {str(e)}"
+                    errors.append(error_msg)
+                    print(f"Database import error: {error_msg}")
+            
+            # Clean up temp file
+            try:
+                os.remove(file_path)
+            except:
+                pass
+            
+            total_rows = len(records) + skipped
+            
+            return jsonify({
+                'success': True,
+                'summary': {
+                    'rows': total_rows,
+                    'created': created,
+                    'updated': updated,
+                    'skipped': skipped,
+                    'errors': len(errors)
+                },
+                'errors': errors
             })
         except Exception as e:
             # Clean up temp file
