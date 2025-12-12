@@ -3434,8 +3434,9 @@ def import_kiro_detect_sheets():
         kiro_sheets = []
         
         # Pattern: "Kiro Week {number} Challenge" or "{number}.Kiro Week {number} Challenge" (case-insensitive)
-        # Matches both "Kiro Week 1 Challenge" and "13.Kiro Week 1 Challenge"
-        pattern = re.compile(r'^(?:\d+\.\s*)?Kiro Week (\d+) Challenge$', re.IGNORECASE)
+        # Matches "Kiro Week 1 Challenge", "13.Kiro Week 1 Challenge", "15.Kiro Week 3 Challenge  The", etc.
+        # Allows optional text after "Challenge"
+        pattern = re.compile(r'^(?:\d+\.\s*)?Kiro Week (\d+) Challenge.*', re.IGNORECASE)
         
         for idx, sheet_name in enumerate(workbook.sheetnames):
             match = pattern.match(sheet_name.strip())
