@@ -27,6 +27,7 @@
             </div>
             
             <div class="table-selector" id="tableSelector" style="display: none;">
+                {% if default_table != 'user_pii' %}
                 <label for="targetTable">Select Target Table:</label>
                 <select id="targetTable" class="form-control">
                     <option value="">-- Select Table --</option>
@@ -36,6 +37,12 @@
                     <option value="project_submission">Blog Submission</option>
                     <option value="verification">Verification</option>
                 </select>
+                {% else %}
+                <input type="hidden" id="targetTable" value="user_pii">
+                <div class="table-info" style="padding: 10px; background-color: #f0f8ff; border-left: 4px solid #007bff; border-radius: 4px;">
+                    <i class="fas fa-info-circle" style="color: #007bff;"></i> <strong>Target Table:</strong> User PII (automatically selected)
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -122,6 +129,7 @@ let columnMappings = {};
 let fileColumns = [];
 let dbFields = {};
 let previewData = [];
+const defaultTable = '{{ default_table|default("") }}';
 
 // Database field definitions
 const tableFields = {
@@ -250,7 +258,24 @@ function handleFileSelect() {
                 tableSelector.style.display = 'block';
             }
             fileName.textContent = file.name;
-            showFlashMessage('File loaded successfully! Select target table to continue.', 'success');
+            
+            // Auto-select table if default_table is set
+            if (defaultTable) {
+                const tableElement = document.getElementById('targetTable');
+                if (tableElement) {
+                    tableElement.value = defaultTable;
+                    // Load column mapping automatically
+                    if (fileColumns.length > 0) {
+                        loadColumnMapping();
+                        document.getElementById('step2').style.display = 'block';
+                    }
+                    showFlashMessage('File loaded successfully! Column mapping ready.', 'success');
+                } else {
+                    showFlashMessage('File loaded successfully! Select target table to continue.', 'success');
+                }
+            } else {
+                showFlashMessage('File loaded successfully! Select target table to continue.', 'success');
+            }
         } else {
             fileName.textContent = file.name;
             showFlashMessage('Error: ' + (data.error || 'Failed to read file'), 'error');
@@ -264,7 +289,12 @@ function handleFileSelect() {
 }
 
 function loadColumnMapping() {
-    const tableName = document.getElementById('targetTable').value;
+    const tableElement = document.getElementById('targetTable');
+    const tableName = tableElement ? tableElement.value : '';
+    if (!tableName) {
+        showFlashMessage('Please select a target table first!', 'error');
+        return;
+    }
     dbFields = tableFields[tableName] || {};
     
     const mappingContainer = document.getElementById('columnMapping');
@@ -365,7 +395,10 @@ function loadColumnMapping() {
 function updatePreview() {
     if (!previewData.length) return;
     
-    const tableName = document.getElementById('targetTable').value;
+    const tableElement = document.getElementById('targetTable');
+    const tableName = tableElement ? tableElement.value : '';
+    if (!tableName) return;
+    
     const previewContainer = document.getElementById('previewTable');
     
     // Get match fields
@@ -404,7 +437,10 @@ function updatePreview() {
 }
 
 function updateSummary() {
-    const tableName = document.getElementById('targetTable').value;
+    const tableElement = document.getElementById('targetTable');
+    const tableName = tableElement ? tableElement.value : '';
+    if (!tableName) return;
+    
     const importMode = document.querySelector('input[name="importMode"]:checked').value;
     const matchFields = Array.from(document.querySelectorAll('.match-checkbox:checked'))
         .map(cb => cb.dataset.field);
@@ -443,7 +479,8 @@ async function handleImportClick(event) {
     
     console.log('Import button clicked');
     
-    const tableName = document.getElementById('targetTable').value;
+    const tableElement = document.getElementById('targetTable');
+    const tableName = tableElement ? tableElement.value : '';
     const importMode = document.querySelector('input[name="importMode"]:checked');
     const startImportBtn = document.getElementById('startImportBtn');
     

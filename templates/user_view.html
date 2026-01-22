@@ -162,6 +162,52 @@
     </div>
     {% endif %}
 
+    {% if hands_on_lab_completions %}
+    <div class="dashboard-section">
+        <h2><i class="fas fa-flask"></i> Hands-On Lab Completion Proofs</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Workshop</th>
+                        <th>Problem Statement</th>
+                        <th>Proof Link</th>
+                        <th>Status</th>
+                        <th>Remarks</th>
+                        <th>Submitted At</th>
+                        <th>Updated At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lab in hands_on_lab_completions %}
+                    <tr>
+                        <td><strong>{{ lab.workshop_name }}</strong></td>
+                        <td>{{ lab.problem_statement or 'Not provided' }}</td>
+                        <td>
+                            {% if lab.hands_on_lab_proof_link %}
+                                <a href="{{ lab.hands_on_lab_proof_link }}" target="_blank" rel="noopener noreferrer">
+                                    <i class="fas fa-external-link-alt"></i> View Proof
+                                </a>
+                            {% else %}
+                                <span class="text-muted">Not provided</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge badge-{% if lab.valid %}success{% else %}danger{% endif %}">
+                                {% if lab.valid %}Valid{% else %}Invalid{% endif %}
+                            </span>
+                        </td>
+                        <td>{{ lab.remarks or '-' }}</td>
+                        <td>{{ lab.created_at | format_datetime('%Y-%m-%d %H:%M:%S') if lab.created_at else 'N/A' }}</td>
+                        <td>{{ lab.updated_at | format_datetime('%Y-%m-%d %H:%M:%S') if lab.updated_at else 'N/A' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     {% if kiro_submissions %}
     <div class="dashboard-section">
         <h2><i class="fas fa-calendar-week"></i> Kiro Submissions</h2>

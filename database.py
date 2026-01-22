@@ -190,6 +190,55 @@ class UserPII:
         return db_manager.execute_query(query)
     
     @staticmethod
+    def search(search_term: str = None, limit: int = 100, offset: int = 0):
+        """
+        Search users with pagination.
+        Returns: (users, total_count)
+        """
+        conn = None
+        try:
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            
+            # Build WHERE clause for search
+            where_clause = ""
+            params = []
+            
+            if search_term and search_term.strip():
+                search_pattern = f"%{search_term.strip()}%"
+                where_clause = """
+                    WHERE LOWER(email) LIKE LOWER(%s)
+                    OR LOWER(name) LIKE LOWER(%s)
+                    OR LOWER(phone_number) LIKE LOWER(%s)
+                    OR LOWER(country) LIKE LOWER(%s)
+                """
+                params = [search_pattern, search_pattern, search_pattern, search_pattern]
+            
+            # Get total count
+            count_query = f"SELECT COUNT(*) FROM user_pii {where_clause}"
+            cursor.execute(count_query, tuple(params))
+            total_count = cursor.fetchone()[0]
+            
+            # Get paginated results
+            query = f"""
+                SELECT * FROM user_pii 
+                {where_clause}
+                ORDER BY created_at DESC 
+                LIMIT %s OFFSET %s
+            """
+            params_with_pagination = params + [limit, offset]
+            cursor.execute(query, tuple(params_with_pagination))
+            
+            # Fetch results as dictionaries
+            columns = [desc[0] for desc in cursor.description]
+            users = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            
+            return users, total_count
+        finally:
+            if conn:
+                db_manager.return_connection(conn)
+    
+    @staticmethod
     def bulk_upsert(records: list):
         """Bulk upsert user PII records (insert or update)"""
         if not records:

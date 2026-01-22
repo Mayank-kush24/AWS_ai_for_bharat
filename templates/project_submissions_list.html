@@ -427,9 +427,14 @@
                 data.statistics.forEach(stat => {
                     const card = document.createElement('div');
                     card.className = 'statistics-card';
+                    const workshopNameEncoded = encodeURIComponent(stat.workshop_name);
                     card.innerHTML = `
                         <div class="statistics-card-header">
                             <h3><i class="fas fa-chalkboard-teacher"></i> ${stat.workshop_name}</h3>
+                            <button class="btn-validate-workshop" onclick="startWorkshopValidation('${workshopNameEncoded}', '${stat.workshop_name}')" 
+                                    id="validateBtn_${workshopNameEncoded}" title="Validate ${stat.workshop_name} blogs">
+                                <i class="fas fa-check-circle"></i> Validate
+                            </button>
                         </div>
                         <div class="statistics-card-body">
                             <div class="stat-item">
@@ -448,6 +453,16 @@
                                 <div class="progress-bar-container">
                                     <div class="progress-bar-valid" style="width: ${stat.total > 0 ? (stat.valid / stat.total * 100) : 0}%"></div>
                                     <div class="progress-bar-invalid" style="width: ${stat.total > 0 ? (stat.invalid / stat.total * 100) : 0}%"></div>
+                                </div>
+                            </div>
+                            <div id="workshopProgress_${workshopNameEncoded}" class="workshop-progress-container" style="display: none; margin-top: 1rem;">
+                                <div class="workshop-progress-bar">
+                                    <div id="workshopProgressBar_${workshopNameEncoded}" class="workshop-progress-fill" style="width: 0%;">
+                                        <span id="workshopProgressText_${workshopNameEncoded}" class="workshop-progress-text">0%</span>
+                                    </div>
+                                </div>
+                                <div id="workshopProgressStatus_${workshopNameEncoded}" class="workshop-progress-status" style="margin-top: 0.5rem; font-size: 0.875rem; color: #6B7280;">
+                                    <i class="fas fa-spinner fa-spin"></i> Validating...
                                 </div>
                             </div>
                         </div>
@@ -488,6 +503,7 @@
 
     let validationCancelled = false;
     let validationReader = null;
+    let workshopValidationReaders = {}; // Track workshop-specific validation readers
 
     function cancelValidation() {
         validationCancelled = true;
@@ -498,6 +514,106 @@
         status.innerHTML = '<i class="fas fa-ban"></i> Validation cancelled by user';
         status.className = 'status-text status-warning';
         document.getElementById('validateBtn').disabled = false;
+    }
+
+    function cancelWorkshopValidation(workshopNameEncoded) {
+        if (workshopValidationReaders[workshopNameEncoded]) {
+            workshopValidationReaders[workshopNameEncoded].cancel();
+            delete workshopValidationReaders[workshopNameEncoded];
+        }
+        const statusEl = document.getElementById(`workshopProgressStatus_${workshopNameEncoded}`);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-ban"></i> Validation cancelled';
+            statusEl.className = 'workshop-progress-status';
+        }
+        const btn = document.getElementById(`validateBtn_${workshopNameEncoded}`);
+        if (btn) btn.disabled = false;
+    }
+
+    async function startWorkshopValidation(workshopNameEncoded, workshopName) {
+        if (!confirm(`This will re-validate all blog submissions for "${workshopName}" and update likes/comments. This might take a while. Continue?`)) {
+            return;
+        }
+
+        const btn = document.getElementById(`validateBtn_${workshopNameEncoded}`);
+        const progressContainer = document.getElementById(`workshopProgress_${workshopNameEncoded}`);
+        const progressBar = document.getElementById(`workshopProgressBar_${workshopNameEncoded}`);
+        const progressText = document.getElementById(`workshopProgressText_${workshopNameEncoded}`);
+        const statusEl = document.getElementById(`workshopProgressStatus_${workshopNameEncoded}`);
+
+        if (!btn || !progressContainer || !progressBar || !progressText || !statusEl) {
+            alert('Error: Could not find validation elements for this workshop.');
+            return;
+        }
+
+        btn.disabled = true;
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = '0%';
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to server...';
+        statusEl.className = 'workshop-progress-status';
+
+        try {
+            const response = await fetch(`{{ url_for('blog_submissions_validate_stream_by_workshop', workshop_name='') }}${workshopNameEncoded}`);
+            const reader = response.body.getReader();
+            workshopValidationReaders[workshopNameEncoded] = reader;
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+
+                    try {
+                        const data = JSON.parse(line);
+
+                        if (data.error) {
+                            statusEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + data.error;
+                            statusEl.className = 'workshop-progress-status';
+                            btn.disabled = false;
+                            return;
+                        }
+
+                        // Update progress bar
+                        if (data.total > 0 && data.current !== undefined) {
+                            const percent = Math.round((data.current / data.total) * 100);
+                            progressBar.style.width = percent + '%';
+                            progressText.textContent = percent + '%';
+                        }
+
+                        // Update status message
+                        if (data.status) {
+                            if (data.status === 'Complete') {
+                                statusEl.innerHTML = '<i class="fas fa-check-circle"></i> ' + (data.summary || 'Validation complete!');
+                                statusEl.className = 'workshop-progress-status';
+                                progressBar.style.background = '#10B981';
+                                
+                                setTimeout(() => {
+                                    loadBlogStatistics();
+                                    window.location.reload();
+                                }, 2000);
+                            } else {
+                                statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + data.status;
+                                statusEl.className = 'workshop-progress-status';
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing JSON:', e, 'Line:', line);
+                    }
+                }
+            }
+        } catch (e) {
+            statusEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Network Error: ' + e.message;
+            statusEl.className = 'workshop-progress-status';
+            btn.disabled = false;
+        } finally {
+            delete workshopValidationReaders[workshopNameEncoded];
+        }
     }
 
     async function startValidation() {

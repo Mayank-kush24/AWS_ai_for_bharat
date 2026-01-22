@@ -15,8 +15,20 @@
         <div class="search-box" style="position: relative; max-width: 500px;">
             <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #6B7280; pointer-events: none;"></i>
             <input type="text" id="userSearch" placeholder="Search users by name, email, phone, or country..." 
+                   value="{{ search_term }}"
                    style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.75rem; border: 1px solid #E5E7EB; border-radius: 8px; font-size: 0.9375rem; transition: all 0.2s ease; background-color: #FFFFFF;">
+            <div id="searchLoading" style="display: none; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%);">
+                <i class="fas fa-spinner fa-spin" style="color: #F79C22;"></i>
+            </div>
         </div>
+    </div>
+
+    <div id="usersInfo" style="margin-bottom: 1rem; color: #6B7280; font-size: 0.875rem;">
+        {% if total_count > 0 %}
+            Showing {{ ((current_page - 1) * per_page) + 1 }} to {{ [current_page * per_page, total_count]|min }} of {{ total_count }} users
+        {% else %}
+            No users found
+        {% endif %}
     </div>
 
     <div class="table-container">
@@ -34,12 +46,22 @@
             <tbody id="usersTableBody">
                 {% if users %}
                     {% for user in users %}
-                    <tr data-searchable="{{ (user.email or '')|lower }} {{ (user.name or '')|lower }} {{ (user.phone_number or '')|lower }} {{ (user.country or '')|lower }}">
-                        <td><strong>{{ user.email }}</strong></td>
-                        <td>{{ user.name }}</td>
-                        <td>{{ user.phone_number or '-' }}</td>
-                        <td>{{ user.country or '-' }}</td>
-                        <td>{{ user.registration_date_time.strftime('%Y-%m-%d') if user.registration_date_time else '-' }}</td>
+                    <tr>
+                        <td><strong>{{ user.email if user.email else '-' }}</strong></td>
+                        <td>{{ user.name if user.name else '-' }}</td>
+                        <td>{{ user.phone_number if user.phone_number else '-' }}</td>
+                        <td>{{ user.country if user.country else '-' }}</td>
+                        <td>
+                            {% if user.registration_date_time %}
+                                {% if user.registration_date_time.strftime %}
+                                    {{ user.registration_date_time.strftime('%Y-%m-%d') }}
+                                {% else %}
+                                    {{ user.registration_date_time }}
+                                {% endif %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                         <td class="actions">
                             <a href="{{ url_for('user_view', email=user.email) }}" class="btn btn-sm btn-info" title="View">
                                 <i class="fas fa-eye"></i>
@@ -60,62 +82,171 @@
             </tbody>
         </table>
     </div>
+
+    {% if total_pages > 1 %}
+    <div style="margin-top: 1.5rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem;">
+        <button id="prevPage" class="btn btn-sm" style="{% if current_page <= 1 %}opacity: 0.5; cursor: not-allowed;{% endif %}" {% if current_page <= 1 %}disabled{% endif %}>
+            <i class="fas fa-chevron-left"></i> Previous
+        </button>
+        <span style="padding: 0.5rem 1rem; color: #6B7280;">
+            Page {{ current_page }} of {{ total_pages }}
+        </span>
+        <button id="nextPage" class="btn btn-sm" style="{% if current_page >= total_pages %}opacity: 0.5; cursor: not-allowed;{% endif %}" {% if current_page >= total_pages %}disabled{% endif %}>
+            Next <i class="fas fa-chevron-right"></i>
+        </button>
+    </div>
+    {% endif %}
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('userSearch');
     const tableBody = document.getElementById('usersTableBody');
+    const searchLoading = document.getElementById('searchLoading');
+    const usersInfo = document.getElementById('usersInfo');
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
     
     if (!searchInput || !tableBody) return;
     
-    const allRows = Array.from(tableBody.querySelectorAll('tr'));
-    const userRows = allRows.filter(row => row.hasAttribute('data-searchable'));
-    let noUsersRow = allRows.find(row => row.querySelector('td[colspan]'));
+    let searchTimeout;
+    let currentPage = {{ current_page }};
+    let totalPages = {{ total_pages }};
+    let totalCount = {{ total_count }};
+    const perPage = {{ per_page }};
     
-    // Create "No results" row if it doesn't exist
-    if (!noUsersRow && userRows.length > 0) {
-        noUsersRow = document.createElement('tr');
-        noUsersRow.style.display = 'none';
-        noUsersRow.innerHTML = '<td colspan="6" class="text-center text-muted">No users found matching your search.</td>';
-        tableBody.appendChild(noUsersRow);
-    }
-
-    searchInput.addEventListener('input', function(e) {
-        const searchTerm = e.target.value.toLowerCase().trim();
-        let visibleCount = 0;
+    // Debounced search function
+    function performSearch(searchTerm, page = 1) {
+        clearTimeout(searchTimeout);
         
-        userRows.forEach(row => {
-            const searchableText = row.getAttribute('data-searchable') || '';
-            if (!searchTerm || searchableText.includes(searchTerm)) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
+        searchTimeout = setTimeout(function() {
+            searchLoading.style.display = 'block';
+            tableBody.innerHTML = '<tr><td colspan="6" class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+            
+            const url = new URL('/api/users/search', window.location.origin);
+            url.searchParams.set('q', searchTerm);
+            url.searchParams.set('page', page);
+            url.searchParams.set('per_page', perPage);
+            
+            fetch(url.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                searchLoading.style.display = 'none';
+                
+                if (data.success) {
+                    currentPage = data.pagination.current_page;
+                    totalPages = data.pagination.total_pages;
+                    totalCount = data.pagination.total_count;
+                    
+                    // Update table
+                    if (data.users && data.users.length > 0) {
+                        let html = '';
+                        data.users.forEach(function(user) {
+                            const regDate = user.registration_date_time || '-';
+                            html += `
+                                <tr>
+                                    <td><strong>${user.email || '-'}</strong></td>
+                                    <td>${user.name || '-'}</td>
+                                    <td>${user.phone_number || '-'}</td>
+                                    <td>${user.country || '-'}</td>
+                                    <td>${regDate}</td>
+                                    <td class="actions">
+                                        <a href="/users/${encodeURIComponent(user.email)}" class="btn btn-sm btn-info" title="View">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        {% if session.get('is_admin') or 'user_edit_any' in session.get('user_routes', []) %}
+                                        <a href="/users/${encodeURIComponent(user.email)}/edit" class="btn btn-sm btn-warning" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                        tableBody.innerHTML = html;
+                    } else {
+                        tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No users found matching your search.</td></tr>';
+                    }
+                    
+                    // Update info
+                    if (totalCount > 0) {
+                        const start = ((currentPage - 1) * perPage) + 1;
+                        const end = Math.min(currentPage * perPage, totalCount);
+                        usersInfo.textContent = `Showing ${start} to ${end} of ${totalCount} users`;
+                    } else {
+                        usersInfo.textContent = 'No users found';
+                    }
+                    
+                    // Update pagination buttons
+                    updatePaginationButtons();
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading users: ' + (data.error || 'Unknown error') + '</td></tr>';
+                }
+            })
+            .catch(error => {
+                searchLoading.style.display = 'none';
+                tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error loading users. Please try again.</td></tr>';
+                console.error('Search error:', error);
+            });
+        }, 300); // 300ms debounce
+    }
+    
+    function updatePaginationButtons() {
+        if (prevPageBtn) {
+            prevPageBtn.disabled = currentPage <= 1;
+            prevPageBtn.style.opacity = currentPage <= 1 ? '0.5' : '1';
+            prevPageBtn.style.cursor = currentPage <= 1 ? 'not-allowed' : 'pointer';
+        }
+        if (nextPageBtn) {
+            nextPageBtn.disabled = currentPage >= totalPages;
+            nextPageBtn.style.opacity = currentPage >= totalPages ? '0.5' : '1';
+            nextPageBtn.style.cursor = currentPage >= totalPages ? 'not-allowed' : 'pointer';
+        }
+    }
+    
+    // Search input handler
+    searchInput.addEventListener('input', function(e) {
+        const searchTerm = e.target.value.trim();
+        currentPage = 1; // Reset to first page on new search
+        performSearch(searchTerm, 1);
+    });
+    
+    // Pagination handlers
+    if (prevPageBtn) {
+        prevPageBtn.addEventListener('click', function() {
+            if (currentPage > 1) {
+                performSearch(searchInput.value.trim(), currentPage - 1);
             }
         });
-
-        // Show/hide "No users found" message
-        if (noUsersRow) {
-            if (searchTerm && visibleCount === 0 && userRows.length > 0) {
-                noUsersRow.style.display = '';
-            } else {
-                noUsersRow.style.display = 'none';
+    }
+    
+    if (nextPageBtn) {
+        nextPageBtn.addEventListener('click', function() {
+            if (currentPage < totalPages) {
+                performSearch(searchInput.value.trim(), currentPage + 1);
             }
-        }
-    });
-
+        });
+    }
+    
     // Add focus styles
     searchInput.addEventListener('focus', function() {
         this.style.borderColor = '#F79C22';
         this.style.boxShadow = '0 0 0 3px rgba(247, 156, 34, 0.1)';
     });
-
+    
     searchInput.addEventListener('blur', function() {
         this.style.borderColor = '#E5E7EB';
         this.style.boxShadow = 'none';
     });
+    
+    // Initialize pagination buttons
+    updatePaginationButtons();
 });
 </script>
 {% endblock %}
-

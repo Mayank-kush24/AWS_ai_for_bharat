@@ -2,7 +2,7 @@
 Flask Web Application for AWS AI for Bharat Tracking System
 """
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, session, stream_with_context, Response
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from functools import wraps
 import json
 import os
@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv
 from database import (
     db_manager, UserPII, FormResponse, AWSTeamBuilding,
     ProjectSubmission, Verification, MasterLogs, KiroSubmission,
@@ -28,13 +29,16 @@ from database_advanced import (
 )
 from google_sheets_utils import GoogleSheetsExporter
 
+# Load environment variables from .env file
+load_dotenv()
+
 app = Flask(__name__)
 app.secret_key = 'aws-ai-bharat-secret-key-change-in-production'
 
 # Upload configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -121,6 +125,69 @@ def sortable_date(value):
             pass
     
     return '0'
+
+def format_database_error(error, record=None):
+    """
+    Format database error messages to be more descriptive.
+    Extracts column names and values from PostgreSQL errors.
+    """
+    error_str = str(error)
+    
+    # Try to extract column name from psycopg2 error
+    column_name = None
+    if hasattr(error, 'diag') and error.diag:
+        # psycopg2 errors have a diag attribute with detailed info
+        column_name = getattr(error.diag, 'column_name', None)
+    
+    # Try to extract column name from error message using regex
+    if not column_name:
+        # Common patterns: "column \"column_name\"", "column 'column_name'", etc.
+        patterns = [
+            r'column\s+"([^"]+)"',
+            r"column\s+'([^']+)'",
+            r'column\s+(\w+)',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, error_str, re.IGNORECASE)
+            if match:
+                column_name = match.group(1)
+                break
+    
+    # Find the problematic value in the record
+    problematic_value = None
+    if record and column_name:
+        # Try exact match first
+        problematic_value = record.get(column_name)
+        # If not found, try case-insensitive match
+        if problematic_value is None:
+            for key, value in record.items():
+                if key.lower() == column_name.lower():
+                    problematic_value = value
+                    column_name = key  # Use the actual key name
+                    break
+    
+    # If we still don't have a column name, try to infer from error message
+    if not column_name:
+        # Check for "value too long" errors and find which field might be too long
+        if 'too long' in error_str.lower() and record:
+            # Check all string fields in the record for values that might be too long
+            for key, value in record.items():
+                if isinstance(value, str) and len(value) > 255:
+                    column_name = key
+                    problematic_value = value
+                    break
+    
+    # Build descriptive error message
+    if column_name and problematic_value is not None:
+        # Truncate very long values for display
+        display_value = str(problematic_value)
+        if len(display_value) > 100:
+            display_value = display_value[:100] + "..."
+        return f"{error_str} | Column: '{column_name}' | Value: '{display_value}' (length: {len(str(problematic_value))})"
+    elif column_name:
+        return f"{error_str} | Column: '{column_name}'"
+    else:
+        return error_str
 
 # Initialize database connection on startup
 @app.before_request
@@ -521,13 +588,74 @@ def get_demographics():
 @login_required
 @permission_required('users_list')
 def users_list():
-    """List all users"""
+    """List users with pagination"""
     try:
-        users = UserPII.list_all()
-        return render_template('users_list.html', users=users)
+        page = request.args.get('page', 1, type=int)
+        search_term = request.args.get('search', '', type=str)
+        per_page = 100  # Number of users per page
+        
+        offset = (page - 1) * per_page
+        users, total_count = UserPII.search(search_term=search_term, limit=per_page, offset=offset)
+        
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        
+        return render_template('users_list.html', 
+                             users=users, 
+                             current_page=page,
+                             total_pages=total_pages,
+                             total_count=total_count,
+                             search_term=search_term,
+                             per_page=per_page)
     except Exception as e:
         flash(f'Error loading users: {str(e)}', 'error')
-        return render_template('users_list.html', users=[])
+        return render_template('users_list.html', users=[], current_page=1, total_pages=1, total_count=0, search_term='', per_page=100)
+
+
+@app.route('/api/users/search', methods=['GET'])
+@login_required
+@permission_required('users_list')
+def api_users_search():
+    """API endpoint for searching users with pagination"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        search_term = request.args.get('q', '', type=str)
+        per_page = request.args.get('per_page', 100, type=int)
+        
+        offset = (page - 1) * per_page
+        users, total_count = UserPII.search(search_term=search_term, limit=per_page, offset=offset)
+        
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+        
+        # Format users for JSON response
+        formatted_users = []
+        for user in users:
+            # User is already a dict from the search method
+            user_dict = dict(user) if isinstance(user, dict) else {}
+            
+            # Format datetime if present
+            if user_dict.get('registration_date_time'):
+                reg_date = user_dict['registration_date_time']
+                if hasattr(reg_date, 'strftime'):
+                    user_dict['registration_date_time'] = reg_date.strftime('%Y-%m-%d')
+                elif reg_date:
+                    user_dict['registration_date_time'] = str(reg_date)
+            formatted_users.append(user_dict)
+        
+        return jsonify({
+            'success': True,
+            'users': formatted_users,
+            'pagination': {
+                'current_page': page,
+                'total_pages': total_pages,
+                'total_count': total_count,
+                'per_page': per_page
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 
 @app.route('/users/create', methods=['GET', 'POST'])
@@ -591,12 +719,23 @@ def user_view(email):
         # Get Kiro submissions for this user
         kiro_submissions = KiroSubmission.get_by_email(email)
         
+        # Get hands-on lab completion proofs for this user
+        query = "SELECT * FROM hands_on_lab_completion WHERE email = %s ORDER BY created_at DESC"
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, (email,))
+        columns = [desc[0] for desc in cursor.description]
+        rows = cursor.fetchall()
+        db_manager.return_connection(conn)
+        hands_on_lab_completions = [dict(zip(columns, row)) for row in rows]
+        
         return render_template('user_view.html', 
                              user=user, 
                              logs=logs,
                              booked_slots=booked_slots,
                              blog_submissions=user_blog_submissions,
-                             kiro_submissions=kiro_submissions)
+                             kiro_submissions=kiro_submissions,
+                             hands_on_lab_completions=hands_on_lab_completions)
     except Exception as e:
         flash(f'Error loading user: {str(e)}', 'error')
         return redirect(url_for('users_list'))
@@ -1034,6 +1173,25 @@ def scrape_blog_metrics(blog_url):
                 time.sleep(5)  # Wait longer for dynamic content to load
                 print(f"[DEBUG] Dynamic content wait complete")
                 
+                # Check current URL after navigation (in case of redirects)
+                current_url = driver.current_url
+                print(f"[DEBUG] Current URL after navigation: {current_url}")
+                
+                # Check if URL redirected to a 404 page or error page
+                # Also check if URL changed significantly (might indicate redirect to error page)
+                url_base = blog_url.split('?')[0].rstrip('/')
+                current_base = current_url.split('?')[0].rstrip('/')
+                
+                if '/404' in current_url or '/error' in current_url or '/not-found' in current_url:
+                    is_404 = True
+                    error = "404 Not Found (redirected to error page)"
+                    print(f"[DEBUG] URL redirected to error page: {current_url}")
+                    driver.quit()
+                    return likes, comments, error, is_404
+                elif url_base != current_base:
+                    # URL changed but not to an obvious error page - log for debugging
+                    print(f"[DEBUG] URL changed from {blog_url} to {current_url}. This might be a redirect.")
+                
                 # Save page source for debugging
                 try:
                     with open('debug_page_source.html', 'w', encoding='utf-8') as f:
@@ -1042,20 +1200,64 @@ def scrape_blog_metrics(blog_url):
                 except:
                     pass
                 
-                # Check for 404 page
+                # Check for 404 page - more specific checks
                 page_title = driver.title.lower()
-                page_source = driver.page_source.lower()
+                page_source_lower = driver.page_source.lower()
                 
-                # Check for 404 indicators
-                if ('404' in page_title or 
-                    'not found' in page_title or 
-                    '404' in page_source[:2000] or 
-                    'page you\'re looking for can\'t be found' in page_source or
-                    'the page you\'re looking for can\'t be found' in page_source):
+                # More specific 404 indicators - look for actual error messages, not just "404" in content
+                # Check for common 404 error page patterns
+                page_404_indicators = [
+                    'page not found',
+                    '404 error',
+                    '404 - page not found',
+                    '404 not found',
+                    'the page you\'re looking for can\'t be found',
+                    'page you\'re looking for can\'t be found',
+                    'this page doesn\'t exist',
+                    'page does not exist',
+                    'content not found',
+                    'article not found'
+                ]
+                
+                # Check title for 404
+                title_is_404 = any(indicator in page_title for indicator in page_404_indicators)
+                
+                # Check for 404 in the first part of the page (but be more specific)
+                # Look for 404 error messages, not just the number "404"
+                page_start_404 = False
+                page_start = page_source_lower[:5000]  # Check first 5000 chars
+                for indicator in page_404_indicators:
+                    if indicator in page_start:
+                        page_start_404 = True
+                        break
+                
+                # Also check if the page has no meaningful content (suggesting it's an error page)
+                # Valid blog posts should have article content, headings, or specific elements
+                has_blog_content = False
+                try:
+                    # Check for common blog post elements
+                    article_elements = driver.find_elements(By.TAG_NAME, "article")
+                    heading_elements = driver.find_elements(By.TAG_NAME, "h1")
+                    # Check for like/comment buttons (which should exist on valid posts)
+                    like_buttons_check = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Like')]")
+                    comment_buttons_check = driver.find_elements(By.XPATH, "//button[contains(@aria-label, 'Comment')]")
+                    
+                    if article_elements or heading_elements or like_buttons_check or comment_buttons_check:
+                        has_blog_content = True
+                        print(f"[DEBUG] Found blog content indicators - articles: {len(article_elements)}, headings: {len(heading_elements)}, like buttons: {len(like_buttons_check)}, comment buttons: {len(comment_buttons_check)}")
+                except Exception as e:
+                    print(f"[DEBUG] Error checking for blog content: {e}")
+                
+                # Only mark as 404 if we have strong indicators AND no blog content
+                if (title_is_404 or page_start_404) and not has_blog_content:
                     is_404 = True
                     error = "404 Not Found"
+                    print(f"[DEBUG] Detected 404 - title_is_404: {title_is_404}, page_start_404: {page_start_404}, has_blog_content: {has_blog_content}")
                     driver.quit()
                     return likes, comments, error, is_404
+                elif title_is_404 or page_start_404:
+                    # If we have 404 indicators but also have blog content, it might be a false positive
+                    print(f"[DEBUG] Warning: Found 404 indicators but also found blog content. Treating as valid page.")
                 
                 # Initialize likes and comments to None (not 0) so we can distinguish between "not found" and "found 0"
                 likes_found = False
@@ -1624,6 +1826,90 @@ def blog_submissions_validate_stream():
     return Response(stream_with_context(generate()), mimetype='application/json')
 
 
+@app.route('/api/blog-submissions/validate-stream/<workshop_name>')
+@login_required
+@permission_required('blog_submission_create')
+def blog_submissions_validate_stream_by_workshop(workshop_name):
+    """Stream validation progress for a specific workshop - re-verifies ALL submissions for that workshop"""
+    def generate():
+        try:
+            # Get submissions for the specific workshop
+            query = "SELECT * FROM project_submission WHERE workshop_name = %s"
+            results = db_manager.execute_query(query, (workshop_name,))
+            submissions_to_validate = [dict(row) for row in results if row.get('project_link')]
+            total_count = len(submissions_to_validate)
+            
+            if total_count == 0:
+                yield json.dumps({'current': 0, 'total': 0, 'status': f'No submissions with links to validate for {workshop_name}'}) + '\n'
+                return
+
+            validated_count = 0
+            failed_count = 0
+            processed_count = 0
+            updated_count = 0
+            
+            # Use ThreadPoolExecutor with 10 workers for parallel processing
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # Submit all validation tasks
+                future_to_submission = {
+                    executor.submit(validate_single_submission, submission): submission 
+                    for submission in submissions_to_validate
+                }
+                
+                # Process results as they complete
+                for future in as_completed(future_to_submission):
+                    try:
+                        result = future.result()
+                        processed_count += 1
+                        
+                        if result:
+                            if result['valid']:
+                                validated_count += 1
+                                # Check if likes or comments were updated
+                                if result.get('likes', 0) > 0 or result.get('comments', 0) > 0:
+                                    updated_count += 1
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... (Likes: {result.get("likes", 0)}, Comments: {result.get("comments", 0)})'
+                                else:
+                                    status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            else:
+                                failed_count += 1
+                                status_msg = f'Processed {processed_count}/{total_count}: {result["link"][:50]}... ({result["reason"]})'
+                            
+                            # Yield progress with detailed counts
+                            yield json.dumps({
+                                'current': processed_count,
+                                'total': total_count,
+                                'validated': validated_count,
+                                'failed': failed_count,
+                                'updated': updated_count,
+                                'status': status_msg
+                            }) + '\n'
+                    except Exception as e:
+                        processed_count += 1
+                        failed_count += 1
+                        yield json.dumps({
+                            'current': processed_count,
+                            'total': total_count,
+                            'validated': validated_count,
+                            'failed': failed_count,
+                            'updated': updated_count,
+                            'status': f'Error processing: {str(e)}'
+                        }) + '\n'
+            
+            # Final summary
+            yield json.dumps({
+                'current': total_count,
+                'total': total_count,
+                'status': 'Complete',
+                'summary': f'Validated: {validated_count}, Failed: {failed_count}, Updated likes/comments: {updated_count}'
+            }) + '\n'
+            
+        except Exception as e:
+            yield json.dumps({'error': str(e)}) + '\n'
+
+    return Response(stream_with_context(generate()), mimetype='application/json')
+
+
 # ============================================
 # Routes - Verification (Removed)
 # ============================================
@@ -1774,37 +2060,69 @@ def verify_github_repo(github_url, max_retries=3):
             github_url = 'https://' + github_url
         
         parsed = urlparse(github_url)
-        # Get path and remove leading/trailing slashes, then split
-        path = parsed.path.strip('/')
+        # Get path and remove leading/trailing slashes
+        # Use unquote to handle URL-encoded characters (like %20 for spaces)
+        from urllib.parse import unquote
+        path = unquote(parsed.path).strip('/')
         path_parts = [p for p in path.split('/') if p]
         
         # Remove .git suffix if present
         if path_parts and path_parts[-1].endswith('.git'):
             path_parts[-1] = path_parts[-1][:-4]
         
-        # Remove 'tree', 'blob', or branch names if present (keep only owner/repo)
-        if len(path_parts) > 2:
-            # If we have more than 2 parts, it might be owner/repo/tree/branch
-            # Just take the first two parts (owner and repo)
-            path_parts = path_parts[:2]
+        # Extract owner, repo, and optional subdirectory path
+        # Support formats:
+        # - owner/repo -> check root
+        # - owner/repo/tree/branch/path/to/dir -> check path/to/dir
+        # - owner/repo/blob/branch/path/to/file -> check path/to (parent dir)
         
         if len(path_parts) < 2:
             return False, f"Invalid GitHub URL format. Expected owner/repo, got: {github_url}"
         
         owner = path_parts[0]
         repo = path_parts[1]
+        subdirectory = ""
+        branch = None  # Default branch (will use repo's default if not specified)
+        
+        # Check if URL contains /tree/ or /blob/ (indicates branch + path)
+        if len(path_parts) >= 4 and path_parts[2] in ['tree', 'blob']:
+            # Format: owner/repo/tree/branch/path/to/folder
+            # or: owner/repo/blob/branch/path/to/file
+            # Extract branch name (index 3)
+            branch = path_parts[3]
+            # Extract subdirectory path (from index 4 onwards)
+            if len(path_parts) > 4:
+                subdirectory = '/'.join(path_parts[4:])
         
         # URL encode owner and repo to handle special characters
         from urllib.parse import quote
         owner_encoded = quote(owner, safe='')
         repo_encoded = quote(repo, safe='')
         
-        # Use GitHub API to check repository and list contents
-        api_url = f"https://api.github.com/repos/{owner_encoded}/{repo_encoded}/contents"
+        # Build API URL - include subdirectory if present, and ref (branch) parameter
+        if subdirectory:
+            # Encode subdirectory path - each part needs to be encoded separately
+            # Handle folder names with spaces or special characters
+            subdirectory_parts = subdirectory.split('/')
+            subdirectory_encoded = '/'.join(quote(part, safe='') for part in subdirectory_parts)
+            api_url = f"https://api.github.com/repos/{owner_encoded}/{repo_encoded}/contents/{subdirectory_encoded}"
+        else:
+            api_url = f"https://api.github.com/repos/{owner_encoded}/{repo_encoded}/contents"
+        
+        # Add ref (branch) parameter if specified
+        if branch:
+            branch_encoded = quote(branch, safe='')
+            # Use & if there are already query params, otherwise use ?
+            separator = '&' if '?' in api_url else '?'
+            api_url += f"{separator}ref={branch_encoded}"
         
         # Debug logging
         print(f"[DEBUG] Parsed GitHub URL: {github_url}")
         print(f"[DEBUG] Owner: {owner}, Repo: {repo}")
+        if branch:
+            print(f"[DEBUG] Branch: {branch}")
+        if subdirectory:
+            print(f"[DEBUG] Subdirectory: {subdirectory}")
         print(f"[DEBUG] API URL: {api_url}")
         
         headers = {
@@ -1815,7 +2133,17 @@ def verify_github_repo(github_url, max_retries=3):
         # Optional: Add GitHub token for higher rate limits
         github_token = os.getenv('GITHUB_TOKEN')
         if github_token:
-            headers['Authorization'] = f'token {github_token}'
+            # Strip whitespace and newlines that might be in .env file
+            github_token = github_token.strip()
+            # Debug: Log token status (first 10 chars only for security)
+            print(f"[DEBUG] GitHub token found: {github_token[:10]}... (length: {len(github_token)})")
+            # Try 'Bearer' format first (newer format), fallback to 'token' for classic tokens
+            if github_token.startswith('github_pat_'):
+                headers['Authorization'] = f'Bearer {github_token}'
+            else:
+                headers['Authorization'] = f'token {github_token}'
+        else:
+            print("[WARNING] GITHUB_TOKEN not found in environment variables! Using unauthenticated requests (60/hour limit).")
         
         # Retry logic with exponential backoff for rate limits
         for attempt in range(max_retries):
@@ -1827,6 +2155,31 @@ def verify_github_repo(github_url, max_retries=3):
                     time.sleep(wait_time)
                 
                 response = requests.get(api_url, headers=headers, timeout=15)
+                
+                # Check for authentication errors (401)
+                if response.status_code == 401:
+                    error_msg = 'Bad credentials'
+                    error_details = {}
+                    try:
+                        if response.headers.get('content-type', '').startswith('application/json'):
+                            error_data = response.json()
+                            error_msg = error_data.get('message', 'Bad credentials')
+                            error_details = error_data
+                    except:
+                        pass
+                    
+                    print(f"[ERROR] GitHub API authentication failed (401): {error_msg}")
+                    print(f"[ERROR] Token status: {'Present' if github_token else 'Missing'}")
+                    if github_token:
+                        github_token_clean = github_token.strip()
+                        print(f"[ERROR] Token format check: Starts with 'ghp_' or 'github_pat_': {github_token_clean.startswith(('ghp_', 'github_pat_'))}")
+                        print(f"[ERROR] Token length: {len(github_token_clean)} characters")
+                        print(f"[ERROR] Token has whitespace: {github_token != github_token_clean}")
+                        print(f"[ERROR] Full error response: {error_details}")
+                    
+                    # Provide helpful troubleshooting message
+                    troubleshooting = "Possible issues: 1) Token expired/revoked - generate new token, 2) Token missing 'public_repo' scope, 3) Extra whitespace in .env file"
+                    return False, f"GitHub API authentication error: {error_msg}. {troubleshooting}"
                 
                 # Debug: Log response details for 404 errors
                 if response.status_code == 404:
@@ -1866,16 +2219,26 @@ def verify_github_repo(github_url, max_retries=3):
                 
                 if response.status_code == 404:
                     # Try to get more details from the error response
-                    error_details = "Repository not found (404)"
+                    error_details = "Repository or path not found (404)"
                     try:
                         error_data = response.json()
                         if 'message' in error_data:
-                            error_details = f"Repository not found: {error_data['message']}"
-                            # If it's a case sensitivity issue or similar, provide helpful message
-                            if 'Not Found' in error_data['message']:
-                                error_details = f"Repository not found. Check URL: {github_url} -> API: {api_url}"
-                    except:
-                        pass
+                            error_msg = error_data['message']
+                            error_details = f"Not found: {error_msg}"
+                            
+                            # If it's a subdirectory path issue, try checking if repo exists
+                            if subdirectory and 'Not Found' in error_msg:
+                                # Try to verify the repository exists first
+                                repo_check_url = f"https://api.github.com/repos/{owner_encoded}/{repo_encoded}"
+                                repo_check_response = requests.get(repo_check_url, headers=headers, timeout=10)
+                                if repo_check_response.status_code == 200:
+                                    # Repository exists, so the issue is with the path
+                                    error_details = f"Repository exists but path not found: {subdirectory} (branch: {branch or 'default'}). Check if the folder path is correct."
+                                else:
+                                    error_details = f"Repository not found. Check URL: {github_url} -> API: {api_url}"
+                    except Exception as e:
+                        print(f"[DEBUG] Error parsing 404 response: {e}")
+                        error_details = f"Repository or path not found. Check URL: {github_url} -> API: {api_url}"
                     return False, error_details
                 
                 if response.status_code == 403:
@@ -1928,14 +2291,16 @@ def verify_github_repo(github_url, max_retries=3):
                 
                 if found_kiro_folder:
                     is_valid = True
-                    reason = f"Valid - Found folder: {kiro_folder_name}"
+                    location = f"in {subdirectory}/" if subdirectory else "in root"
+                    reason = f"Valid - Found folder: {kiro_folder_name} {location}"
                 else:
                     # List all folder names for debugging
                     folder_names = [item.get('name') for item in contents if item.get('type') == 'dir']
+                    location = f"in {subdirectory}/" if subdirectory else "in repository root"
                     if folder_names:
-                        reason = f"Invalid - No folder starting with '.kiro' found. Available folders: {', '.join(folder_names[:10])}"
+                        reason = f"Invalid - No folder starting with '.kiro' found {location}. Available folders: {', '.join(folder_names[:10])}"
                     else:
-                        reason = "Invalid - No folders found in repository root"
+                        reason = f"Invalid - No folders found {location}"
                 
                 # Success - break out of retry loop
                 break
@@ -2437,15 +2802,21 @@ def kiro_submissions_validate_github_stream():
             # Without token: 60 requests/hour = 1 per minute (use 1 worker)
             # With token: 5000 requests/hour = ~83 per minute (use 10 workers like blog validation)
             github_token = os.getenv('GITHUB_TOKEN')
+            if github_token:
+                # Strip whitespace and newlines that might be in .env file
+                github_token = github_token.strip()
             max_workers = 10 if github_token else 1
             
             if github_token:
+                # Debug: Log token status (first 10 chars only for security)
+                print(f"[DEBUG] GitHub token found for validation: {github_token[:10]}... (length: {len(github_token)})")
                 yield json.dumps({
                     'current': 0,
                     'total': total_count,
                     'status': f'Starting validation with {max_workers} workers (GitHub token detected)...'
                 }) + '\n'
             else:
+                print("[WARNING] GITHUB_TOKEN not found in environment variables! Using unauthenticated requests (60/hour limit).")
                 yield json.dumps({
                     'current': 0,
                     'total': total_count,
@@ -2602,7 +2973,9 @@ def import_master_page():
 @permission_required('import_advanced_page')
 def import_advanced_page():
     """Advanced import page with column mapping"""
-    return render_template('import_advanced.html')
+    # Check if table is specified in query parameter (for User PII Import)
+    default_table = request.args.get('table', '')
+    return render_template('import_advanced.html', default_table=default_table)
 
 
 @app.route('/import/simple')
@@ -2661,8 +3034,9 @@ def import_workshops():
                     total_updated += result['updated']
                     project_count += len(records)
             except Exception as e:
-                sheet_result['errors'].append(f"Database error: {str(e)}")
-                parse_result['total_errors'].append(f"Sheet {sheet_result['sheet_index']}: {str(e)}")
+                error_msg = format_database_error(e)
+                sheet_result['errors'].append(f"Database error: {error_msg}")
+                parse_result['total_errors'].append(f"Sheet {sheet_result['sheet_index']}: {error_msg}")
         
         # Clean up temp file
         try:
@@ -2721,7 +3095,8 @@ def import_user_pii():
             parse_result['rows_inserted'] = result['inserted']
             parse_result['rows_updated'] = result['updated']
         except Exception as e:
-            parse_result['errors'].append(f"Database error: {str(e)}")
+            error_msg = format_database_error(e)
+            parse_result['errors'].append(f"Database error: {error_msg}")
         
         # Clean up temp file
         try:
@@ -2821,7 +3196,11 @@ def import_master_preview():
 def import_preview():
     """Preview file columns and first few rows"""
     try:
+        print("=== Import Preview Request ===")
+        print(f"Files in request: {list(request.files.keys())}")
+        
         if 'file' not in request.files:
+            print("ERROR: No file in request")
             return jsonify({'error': 'No file provided', 'success': False}), 400
         
         file = request.files['file']
@@ -2835,14 +3214,19 @@ def import_preview():
         filename = secure_filename(file.filename)
         unique_filename = f"{uuid.uuid4()}_{filename}"
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        print(f"Saving file to: {file_path}")
         file.save(file_path)
+        print(f"File saved successfully, size: {os.path.getsize(file_path)} bytes")
         
         # Read file and extract columns
         try:
             from import_utils import read_xlsx_file, get_sheet_headers
             
+            print("Reading workbook...")
             workbook = read_xlsx_file(file_path)
+            print(f"Workbook sheets: {workbook.sheetnames}")
             sheet = workbook[workbook.sheetnames[0]]  # First sheet
+            print(f"Using sheet: {workbook.sheetnames[0]}")
             
             # Get headers
             headers = get_sheet_headers(sheet)
@@ -2851,7 +3235,23 @@ def import_preview():
             preview = []
             for row in sheet.iter_rows(min_row=2, max_row=6, values_only=True):
                 if any(cell for cell in row):  # Skip empty rows
-                    preview.append(list(row))
+                    # Convert all values to JSON-serializable types
+                    serializable_row = []
+                    for cell in row:
+                        if cell is None:
+                            serializable_row.append(None)
+                        elif isinstance(cell, datetime):
+                            serializable_row.append(cell.isoformat())
+                        elif isinstance(cell, date):
+                            serializable_row.append(cell.isoformat())
+                        elif isinstance(cell, (int, float, bool)):
+                            serializable_row.append(cell)
+                        else:
+                            serializable_row.append(str(cell))
+                    preview.append(serializable_row)
+            
+            # Get total_rows before closing workbook
+            total_rows = sheet.max_row - 1  # Exclude header
             
             workbook.close()
             
@@ -2859,7 +3259,7 @@ def import_preview():
                 'success': True,
                 'columns': headers,
                 'preview': preview,
-                'total_rows': sheet.max_row - 1  # Exclude header
+                'total_rows': total_rows
             }
         except Exception as e:
             result = {
@@ -2876,6 +3276,10 @@ def import_preview():
         return jsonify(result)
     
     except Exception as e:
+        import traceback
+        print(f"=== Import Preview Error ===")
+        print(f"Error: {str(e)}")
+        print(traceback.format_exc())
         return jsonify({'error': str(e), 'success': False}), 500
 
 
@@ -3061,7 +3465,8 @@ def import_advanced():
                             created += single_result.get('inserted', 0)
                             updated += single_result.get('updated', 0)
                         except Exception as record_error:
-                            error_msg = str(record_error)
+                            # Format error with column and value information
+                            error_msg = format_database_error(record_error, record)
                             # Extract row number from record if available
                             row_info = f"Row {record.get('row_number', idx + 2)}" if 'row_number' in record else f"Record {idx + 1}"
                             db_errors.append(f"{row_info}: {error_msg}")
@@ -3074,7 +3479,8 @@ def import_advanced():
                     print(f"Database error: {db_error}")
                     import traceback
                     traceback.print_exc()
-                    errors.append(f"Database error: {str(db_error)}")
+                    error_msg = format_database_error(db_error)
+                    errors.append(f"Database error: {error_msg}")
                     # Don't raise, continue to return partial results
             
             response = {
@@ -3657,8 +4063,8 @@ def import_kiro_process():
                     updated = result.get('updated', 0)
                     print(f"Import result: created={created}, updated={updated}, mode={import_mode}, total_records={len(records)}")
                 except Exception as e:
-                    error_msg = f"Database error: {str(e)}"
-                    errors.append(error_msg)
+                    error_msg = format_database_error(e)
+                    errors.append(f"Database error: {error_msg}")
                     print(f"Database import error: {error_msg}")
                     # Still return success but with errors
             else:
@@ -3826,8 +4232,8 @@ def import_hands_on_lab_process():
                     created = single_result.get('inserted', 0)
                     updated = single_result.get('updated', 0)
                 except Exception as e:
-                    error_msg = f"Database error: {str(e)}"
-                    errors.append(error_msg)
+                    error_msg = format_database_error(e)
+                    errors.append(f"Database error: {error_msg}")
                     print(f"Database import error: {error_msg}")
             
             # Clean up temp file
