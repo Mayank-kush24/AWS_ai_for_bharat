@@ -75,7 +75,7 @@ function loadWorkshopData(workshopNum) {
     document.getElementById('errorState').style.display = 'none';
     
     // Fetch data
-    fetch(`/api/workshops/${workshopNum}/data`)
+    fetch(`${BASE_URL}/api/workshops/${workshopNum}/data`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -269,7 +269,7 @@ function createTimeSlotCard(timeSlot, responses, index, occupationBreakdown) {
 }
 
 function exportTimeSlot(timeSlot, workshopNum) {
-    const url = `/api/workshops/${workshopNum}/export?time_slot=${encodeURIComponent(timeSlot)}`;
+    const url = `${BASE_URL}/api/workshops/${workshopNum}/export?time_slot=${encodeURIComponent(timeSlot)}`;
     window.location.href = url;
 }
 

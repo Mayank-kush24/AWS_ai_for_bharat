@@ -32,8 +32,33 @@ from google_sheets_utils import GoogleSheetsExporter
 # Load environment variables from .env file
 load_dotenv()
 
+
+class PrefixMiddleware:
+    """WSGI middleware that strips a URL prefix and sets SCRIPT_NAME,
+    allowing Flask to work behind Nginx with a location prefix like /aws."""
+
+    def __init__(self, app, prefix=''):
+        self.app = app
+        self.prefix = prefix
+
+    def __call__(self, environ, start_response):
+        path = environ.get('PATH_INFO', '')
+        if path.startswith(self.prefix):
+            environ['PATH_INFO'] = path[len(self.prefix):] or '/'
+            environ['SCRIPT_NAME'] = self.prefix
+            return self.app(environ, start_response)
+        # Also handle the prefix without trailing path
+        if path.rstrip('/') == self.prefix.rstrip('/'):
+            environ['PATH_INFO'] = '/'
+            environ['SCRIPT_NAME'] = self.prefix
+            return self.app(environ, start_response)
+        start_response('404 Not Found', [('Content-Type', 'text/plain')])
+        return [b'Not Found']
+
+
 app = Flask(__name__)
 app.secret_key = 'aws-ai-bharat-secret-key-change-in-production'
+app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/aws')
 
 # Upload configuration
 UPLOAD_FOLDER = 'uploads'

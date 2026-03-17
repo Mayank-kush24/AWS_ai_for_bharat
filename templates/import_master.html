@@ -242,7 +242,7 @@ function handleMasterFileSelect() {
     
     fileName.textContent = file.name + ' (Loading...)';
     
-    fetch('/api/import/master-preview', {
+    fetch(BASE_URL + '/api/import/master-preview', {
         method: 'POST',
         body: formData
     })
@@ -800,7 +800,7 @@ async function handleMasterImportClick(event, importType) {
         
         try {
             console.log('Sending master import request...');
-            const response = await fetch('/api/import/master', {
+            const response = await fetch(BASE_URL + '/api/import/master', {
                 method: 'POST',
                 body: formData
             });

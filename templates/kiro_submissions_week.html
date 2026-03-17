@@ -1011,7 +1011,7 @@ function downloadTopParticipants() {
     const weekNumber = {{ week_number }};
     // Add timestamp to prevent caching
     const timestamp = new Date().getTime();
-    const url = `/api/kiro-submissions/top-participants/${weekNumber}?limit=${count}&_t=${timestamp}`;
+    const url = `${BASE_URL}/api/kiro-submissions/top-participants/${weekNumber}?limit=${count}&_t=${timestamp}`;
     
     console.log('Downloading top participants:', { weekNumber, count, url });
     

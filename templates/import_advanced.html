@@ -237,7 +237,7 @@ function handleFileSelect() {
     // Show loading state
     fileName.textContent = file.name + ' (Loading...)';
     
-    fetch('/api/import/preview', {
+    fetch(BASE_URL + '/api/import/preview', {
         method: 'POST',
         body: formData
     })
@@ -544,7 +544,7 @@ async function handleImportClick(event) {
         
         try {
             console.log('Sending import request to /api/import/advanced...');
-            const response = await fetch('/api/import/advanced', {
+            const response = await fetch(BASE_URL + '/api/import/advanced', {
                 method: 'POST',
                 body: formData
             });

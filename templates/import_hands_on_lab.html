@@ -202,7 +202,7 @@ function handleFileSelect() {
     // Show loading state
     fileName.textContent = file.name + ' (Loading...)';
     
-    fetch('/api/import/preview', {
+    fetch(BASE_URL + '/api/import/preview', {
         method: 'POST',
         body: formData
     })
@@ -448,7 +448,7 @@ async function handleImportClick(event) {
     
     try {
         console.log('Sending import request...');
-        const response = await fetch('/api/import/hands-on-lab', {
+        const response = await fetch(BASE_URL + '/api/import/hands-on-lab', {
             method: 'POST',
             body: formData
         });

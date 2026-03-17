@@ -98,6 +98,7 @@
         </div>
     </footer>
 
+    <script>const BASE_URL = "{{ request.script_root }}";</script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>

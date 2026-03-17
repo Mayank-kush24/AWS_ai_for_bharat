@@ -141,7 +141,7 @@ importWorkshopsBtn.addEventListener('click', async () => {
     updateProgress('workshopsProgressFill', 'workshopsProgressText', 50, 'Uploading...');
     
     try {
-        const response = await fetch('/api/import/workshops', {
+        const response = await fetch(BASE_URL + '/api/import/workshops', {
             method: 'POST',
             body: formData
         });
@@ -209,7 +209,7 @@ importPIIBtn.addEventListener('click', async () => {
     updateProgress('piiProgressFill', 'piiProgressText', 50, 'Uploading...');
     
     try {
-        const response = await fetch('/api/import/user-pii', {
+        const response = await fetch(BASE_URL + '/api/import/user-pii', {
             method: 'POST',
             body: formData
         });

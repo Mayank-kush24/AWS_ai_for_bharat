@@ -127,12 +127,12 @@ function loadWorkshopData(workshopName) {
     if (workshopName === 'all') {
         // Load all workshops
         Promise.all([
-            fetch('/api/hands-on-lab-completion/Workshop 1').then(r => r.json()),
-            fetch('/api/hands-on-lab-completion/Workshop 2').then(r => r.json()),
-            fetch('/api/hands-on-lab-completion/Workshop 3').then(r => r.json()),
-            fetch('/api/hands-on-lab-completion/Workshop 4').then(r => r.json()),
-            fetch('/api/hands-on-lab-completion/Workshop 5').then(r => r.json()),
-            fetch('/api/hands-on-lab-completion/Workshop 6').then(r => r.json())
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 1').then(r => r.json()),
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 2').then(r => r.json()),
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 3').then(r => r.json()),
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 4').then(r => r.json()),
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 5').then(r => r.json()),
+            fetch(BASE_URL + '/api/hands-on-lab-completion/Workshop 6').then(r => r.json())
         ])
         .then(results => {
             allData = [];
@@ -150,7 +150,7 @@ function loadWorkshopData(workshopName) {
         });
     } else {
         // Load specific workshop
-        fetch(`/api/hands-on-lab-completion/${encodeURIComponent(workshopName)}`)
+        fetch(`${BASE_URL}/api/hands-on-lab-completion/${encodeURIComponent(workshopName)}`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {

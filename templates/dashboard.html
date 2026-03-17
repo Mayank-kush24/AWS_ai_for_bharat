@@ -282,7 +282,7 @@ async function loadDemographics() {
     
     try {
         console.log('Fetching demographic data...');
-        const response = await fetch('/api/dashboard/demographics');
+        const response = await fetch(BASE_URL + '/api/dashboard/demographics');
         console.log('Response status:', response.status);
         
         if (!response.ok) {
@@ -1420,7 +1420,7 @@ async function exportToGoogleSheet() {
     statusDiv.style.display = 'none';
     
     try {
-        const response = await fetch('/api/export-to-sheet', {
+        const response = await fetch(BASE_URL + '/api/export-to-sheet', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1469,7 +1469,7 @@ async function loadKiroStats() {
     }
     
     try {
-        const response = await fetch('/api/dashboard/kiro-stats');
+        const response = await fetch(BASE_URL + '/api/dashboard/kiro-stats');
         const data = await response.json();
         
         if (data.success) {
@@ -1562,7 +1562,7 @@ function renderKiroStats(data) {
                         <span style="color: #9CA3AF; font-size: 0.875rem;">(${githubPercent}%)</span>
                     </td>
                     <td>
-                        <a href="/kiro-submissions/week/${week.week_number}" class="btn btn-sm btn-info" style="text-decoration: none;">
+                        <a href="${BASE_URL}/kiro-submissions/week/${week.week_number}" class="btn btn-sm btn-info" style="text-decoration: none;">
                             <i class="fas fa-eye"></i> View
                         </a>
                     </td>
