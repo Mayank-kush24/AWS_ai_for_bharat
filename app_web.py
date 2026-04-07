@@ -1,13 +1,13 @@
 """
 Flask Web Application for AWS AI for Bharat Tracking System
 """
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, session, stream_with_context, Response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, send_from_directory, stream_with_context, Response, g, make_response
 from datetime import datetime, timedelta, date
-from functools import wraps
 import json
 import os
 import uuid
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -28,37 +28,38 @@ from database_advanced import (
     bulk_upsert_advanced_hands_on_lab_completion
 )
 from google_sheets_utils import GoogleSheetsExporter
+from jarvis_auth import get_module_pages, jarvis_auth_required, register_with_jarvis, set_module_pages
 
 # Load environment variables from .env file
 load_dotenv()
 
+# Single source: Jarvis Level 2 RBAC page list + in-app nav (same order as the app navbar).
+_JARVIS_PAGE_SPEC: list[dict[str, str]] = [
+    {"pageId": "dashboard", "path": "/dashboard", "label": "Dashboard", "endpoint": "index", "icon": "fas fa-home"},
+    {"pageId": "users", "path": "/users", "label": "Users", "endpoint": "users_list", "icon": "fas fa-users"},
+    {"pageId": "workshops", "path": "/workshops", "label": "Workshops", "endpoint": "workshops_view", "icon": "fas fa-chalkboard-teacher"},
+    {"pageId": "team-building", "path": "/team-building", "label": "Team Building", "endpoint": "team_building_list", "icon": "fas fa-users-cog"},
+    {"pageId": "blog-submissions", "path": "/blog-submissions", "label": "Blog Submissions", "endpoint": "blog_submissions_list", "icon": "fas fa-blog"},
+    {"pageId": "hands-on-lab-completion", "path": "/hands-on-lab-completion", "label": "Hands-on Lab Completion", "endpoint": "hands_on_lab_completion_list", "icon": "fas fa-flask"},
+    {"pageId": "kiro-submissions", "path": "/kiro-submissions", "label": "Kiro Submission", "endpoint": "kiro_submissions_list", "icon": "fas fa-trophy"},
+    {"pageId": "logs", "path": "/logs", "label": "Activity Logs", "endpoint": "logs_list", "icon": "fas fa-history"},
+    {"pageId": "import", "path": "/import", "label": "Import", "endpoint": "import_page", "icon": "fas fa-file-upload"},
+    {"pageId": "admin-users", "path": "/admin/users", "label": "User Management", "endpoint": "admin_users_list", "icon": "fas fa-user-shield"},
+]
 
-class PrefixMiddleware:
-    """WSGI middleware that strips a URL prefix and sets SCRIPT_NAME,
-    allowing Flask to work behind Nginx with a location prefix like /aws."""
+MODULE_PAGES: list[dict[str, str]] = [
+    {"pageId": p["pageId"], "label": p["label"], "path": p["path"]} for p in _JARVIS_PAGE_SPEC
+]
 
-    def __init__(self, app, prefix=''):
-        self.app = app
-        self.prefix = prefix
+set_module_pages(MODULE_PAGES)
 
-    def __call__(self, environ, start_response):
-        path = environ.get('PATH_INFO', '')
-        if path.startswith(self.prefix):
-            environ['PATH_INFO'] = path[len(self.prefix):] or '/'
-            environ['SCRIPT_NAME'] = self.prefix
-            return self.app(environ, start_response)
-        # Also handle the prefix without trailing path
-        if path.rstrip('/') == self.prefix.rstrip('/'):
-            environ['PATH_INFO'] = '/'
-            environ['SCRIPT_NAME'] = self.prefix
-            return self.app(environ, start_response)
-        start_response('404 Not Found', [('Content-Type', 'text/plain')])
-        return [b'Not Found']
+JARVIS_NAV_LINKS: list[tuple[str, str, str, str]] = [
+    (p["pageId"], p["endpoint"], p["icon"], p["label"]) for p in _JARVIS_PAGE_SPEC
+]
 
 
 app = Flask(__name__)
 app.secret_key = 'aws-ai-bharat-secret-key-change-in-production'
-app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix='/aws')
 
 # Upload configuration
 UPLOAD_FOLDER = 'uploads'
@@ -70,6 +71,71 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+# Behind nginx / Jarvis path prefix: trust proxy headers and fix url_for / redirects
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+# Public URL prefix (e.g. https://host/aws/...) — default /aws for this Jarvis module
+_root_raw = (os.environ.get("APPLICATION_ROOT") or "").strip() or "/aws"
+_root_env = _root_raw.rstrip("/")
+app.config["APPLICATION_ROOT"] = (
+    _root_env if _root_env.startswith("/") else f"/{_root_env}"
+)
+
+# Jarvis: sync module + MODULE_PAGES on startup (POST .../api/modules/register)
+_jarvis_base_url = (os.environ.get("BASE_URL") or "").strip().rstrip("/")
+_jarvis_module_name = (os.environ.get("JARVIS_MODULE_NAME") or "AWS AI for Bharat").strip()
+register_with_jarvis(
+    MODULE_PAGES,
+    module_name=_jarvis_module_name,
+    base_url=_jarvis_base_url,
+)
+
+
+@app.before_request
+def _set_script_name():
+    """Prefer X-Forwarded-Prefix; else APPLICATION_ROOT from .env (e.g. /your-slug)."""
+    prefix = (request.headers.get("X-Forwarded-Prefix") or "").strip().rstrip("/")
+    if prefix and not prefix.startswith("/"):
+        prefix = "/" + prefix
+    if prefix:
+        request.environ["SCRIPT_NAME"] = prefix
+        return
+    root = (app.config.get("APPLICATION_ROOT") or "").strip().rstrip("/")
+    if root:
+        request.environ["SCRIPT_NAME"] = root
+
+
+@app.context_processor
+def inject_jarvis_nav():
+    u = getattr(g, "user", None)
+
+    def jarvis_can_page(page_id: str) -> bool:
+        if not u:
+            return False
+        if u.get("isAdmin"):
+            return True
+        pages = get_module_pages(u)
+        if pages is None:
+            return True
+        return page_id in pages
+
+    links = []
+    if u:
+        for page_id, endpoint, icon, label in JARVIS_NAV_LINKS:
+            if jarvis_can_page(page_id):
+                links.append(
+                    {"page_id": page_id, "endpoint": endpoint, "icon": icon, "label": label}
+                )
+    name = (u or {}).get("name") or (u or {}).get("email") or ""
+    return dict(
+        jarvis_user=u,
+        jarvis_nav_links=links,
+        jarvis_can_page=jarvis_can_page,
+        jarvis_display_name=name,
+        jarvis_public_url=(os.environ.get("JARVIS_URL") or "http://localhost:5050").rstrip("/"),
+    )
+
 
 # Jinja2 template filters
 @app.template_filter('format_datetime')
@@ -223,159 +289,52 @@ def initialize_database():
     except Exception as e:
         print(f"Warning: Database connection issue: {e}")
 
-# Reload user permissions in session if user is logged in
-@app.before_request
-def load_user_permissions():
-    """Reload user permissions in session on each request"""
-    if 'user_id' in session:
-        # Always reload permissions to ensure they're up to date
-        user = RBACUser.get_by_id(session['user_id'])
-        if user:
-            if user.get('is_admin'):
-                session['user_routes'] = [p['route_name'] if isinstance(p, dict) else p[0] for p in RBACPermission.get_all()]
-            else:
-                session['user_routes'] = RBACUserPermission.get_user_permission_routes(session['user_id'])
-
 # ============================================
-# RBAC Helper Functions
+# Routes - Authentication (Jarvis only)
 # ============================================
 
-def login_required(f):
-    """Decorator to require login"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-def admin_required(f):
-    """Decorator to require admin access"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return redirect(url_for('login'))
-        user = RBACUser.get_by_id(session['user_id'])
-        if not user or not user.get('is_admin'):
-            flash('Admin access required', 'error')
-            return redirect(url_for('index'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-def permission_required(route_name):
-    """Decorator factory to require specific permission"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if 'user_id' not in session:
-                return redirect(url_for('login'))
-            user_id = session['user_id']
-            if not RBACUserPermission.has_permission(user_id, route_name):
-                flash('You do not have permission to access this page', 'error')
-                return redirect(url_for('index'))
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
-
-
-# ============================================
-# Routes - Authentication
-# ============================================
-
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    """User login"""
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        
-        if not username or not password:
-            flash('Please enter both username and password', 'error')
-            return render_template('login.html')
-        
-        user = RBACUser.get_by_username(username)
-        if not user:
-            flash('Invalid username or password', 'error')
-            return render_template('login.html')
-        
-        if not user.get('is_active'):
-            flash('Your account is inactive. Please contact administrator.', 'error')
-            return render_template('login.html')
-        
-        if not RBACUser.verify_password(user['password_hash'], password):
-            flash('Invalid username or password', 'error')
-            return render_template('login.html')
-        
-        # Login successful
-        session['user_id'] = user['user_id']
-        session['username'] = user['username']
-        session['is_admin'] = user.get('is_admin', False)
-        session['full_name'] = user.get('full_name', user['username'])
-        
-        # Load user permissions into session
-        if user.get('is_admin'):
-            # Admin has all permissions
-            session['user_routes'] = [p['route_name'] if isinstance(p, dict) else p[0] for p in RBACPermission.get_all()]
-        else:
-            session['user_routes'] = RBACUserPermission.get_user_permission_routes(user['user_id'])
-        
-        # Update last login
-        RBACUser.update_last_login(user['user_id'])
-        
-        flash(f'Welcome back, {session["full_name"]}!', 'success')
-        return redirect(url_for('index'))
-    
-    # If already logged in, redirect to dashboard
-    if 'user_id' in session:
-        return redirect(url_for('index'))
-    
-    return render_template('login.html')
+    """App login is handled by Jarvis; send users to the Jarvis sign-in flow."""
+    jarvis = (os.environ.get("JARVIS_URL") or "http://localhost:5050").rstrip("/")
+    return redirect(f"{jarvis}/login")
 
-@app.route('/logout')
+
+@app.route("/logout")
 def logout():
-    """User logout"""
-    session.clear()
-    flash('You have been logged out successfully', 'success')
-    return redirect(url_for('login'))
+    """Clear module cookie and return to Jarvis."""
+    jarvis = (os.environ.get("JARVIS_URL") or "http://localhost:5050").rstrip("/")
+    resp = make_response(redirect(f"{jarvis}/"))
+    resp.delete_cookie("jarvis_session", path="/")
+    return resp
+
+
+@app.route('/health')
+def health():
+    """Liveness probe — no auth (load balancers / orchestration)."""
+    return jsonify({'status': 'ok'}), 200
+
 
 # ============================================
 # Routes - Dashboard
 # ============================================
-@app.route('/')
-@login_required
-@permission_required('index')
-def index():
-    """Main dashboard"""
+def _render_main_dashboard():
+    """Shared handler for / and /dashboard (Jarvis default path)."""
     try:
-        # Get recent activity logs
         recent_logs = MasterLogs.get_all(limit=10)
-        
-        # Get statistics using SQL COUNT queries for accuracy
         conn = db_manager.get_connection()
         cursor = conn.cursor()
-        
-        # Count total registrations (from user_pii table)
         cursor.execute("SELECT COUNT(*) FROM user_pii")
         total_registration = cursor.fetchone()[0]
-        
-        # Count total form submissions (from form_response table)
         cursor.execute("SELECT COUNT(*) FROM form_response")
         total_form_submission = cursor.fetchone()[0]
-        
-        # Count total blog submissions (from project_submission table)
         cursor.execute("SELECT COUNT(*) FROM project_submission")
         total_blog_submission = cursor.fetchone()[0]
-        
-        # Count total Kiro submissions
         cursor.execute("SELECT COUNT(*) FROM kiro_submission")
         total_kiro_submission = cursor.fetchone()[0]
-        
-        # Count total Kiro weeks
         cursor.execute("SELECT COUNT(DISTINCT week_number) FROM kiro_submission")
         total_kiro_weeks = cursor.fetchone()[0]
-        
         db_manager.return_connection(conn)
-        
         stats = {
             'total_registration': total_registration,
             'total_form_submission': total_form_submission,
@@ -383,16 +342,28 @@ def index():
             'total_kiro_submission': total_kiro_submission,
             'total_kiro_weeks': total_kiro_weeks
         }
-        
         return render_template('dashboard.html', recent_logs=recent_logs, stats=stats)
     except Exception as e:
         flash(f'Error loading dashboard: {str(e)}', 'error')
         return render_template('dashboard.html', recent_logs=[], stats={})
 
 
+@app.route('/dashboard')
+@jarvis_auth_required(page='dashboard')
+def dashboard():
+    """Jarvis / MODULE_PAGES open URL; same UI as index."""
+    return _render_main_dashboard()
+
+
+@app.route('/')
+@jarvis_auth_required(page='dashboard')
+def index():
+    """Main dashboard"""
+    return _render_main_dashboard()
+
+
 @app.route('/api/dashboard/demographics')
-@login_required
-@permission_required('index')
+@jarvis_auth_required(page='dashboard')
 def get_demographics():
     """Get demographic statistics for dashboard"""
     try:
@@ -610,8 +581,7 @@ def get_demographics():
 # Routes - User PII
 # ============================================
 @app.route('/users')
-@login_required
-@permission_required('users_list')
+@jarvis_auth_required(page='users')
 def users_list():
     """List users with pagination"""
     try:
@@ -637,8 +607,7 @@ def users_list():
 
 
 @app.route('/api/users/search', methods=['GET'])
-@login_required
-@permission_required('users_list')
+@jarvis_auth_required(page='users')
 def api_users_search():
     """API endpoint for searching users with pagination"""
     try:
@@ -684,8 +653,7 @@ def api_users_search():
 
 
 @app.route('/users/create', methods=['GET', 'POST'])
-@login_required
-@permission_required('user_create')
+@jarvis_auth_required(page='users')
 def user_create():
     """Create a new user"""
     if request.method == 'POST':
@@ -715,8 +683,7 @@ def user_create():
 
 
 @app.route('/users/<email>')
-@login_required
-@permission_required('users_list')
+@jarvis_auth_required(page='users')
 def user_view(email):
     """View user details"""
     try:
@@ -767,8 +734,7 @@ def user_view(email):
 
 
 @app.route('/users/<email>/edit', methods=['GET', 'POST'])
-@login_required
-@permission_required('user_edit_any')
+@jarvis_auth_required(page='users')
 def user_edit(email):
     """Edit user"""
     user = UserPII.get(email)
@@ -807,14 +773,14 @@ def user_edit(email):
 # ============================================
 
 @app.route('/workshops')
-@login_required
-@permission_required('workshops_view')
+@jarvis_auth_required(page='workshops')
 def workshops_view():
     """Workshops view with tabs for each workshop"""
     return render_template('workshops_view.html')
 
 
 @app.route('/api/workshops/<int:workshop_num>/data')
+@jarvis_auth_required(page='workshops')
 def get_workshop_data(workshop_num):
     """Get form response data for a specific workshop, grouped by time slot"""
     try:
@@ -891,6 +857,7 @@ def get_workshop_data(workshop_num):
 
 
 @app.route('/api/workshops/<int:workshop_num>/export')
+@jarvis_auth_required(page='workshops')
 def export_workshop_data(workshop_num):
     """Export workshop data as CSV"""
     try:
@@ -990,8 +957,7 @@ def export_workshop_data(workshop_num):
 # Routes - AWS Team Building
 # ============================================
 @app.route('/team-building')
-@login_required
-@permission_required('team_building_list')
+@jarvis_auth_required(page='team-building')
 def team_building_list():
     """List all AWS team building records"""
     try:
@@ -1003,8 +969,7 @@ def team_building_list():
 
 
 @app.route('/team-building/create', methods=['GET', 'POST'])
-@login_required
-@permission_required('team_building_create')
+@jarvis_auth_required(page='team-building')
 def team_building_create():
     """Create AWS team building record"""
     if request.method == 'POST':
@@ -1516,8 +1481,7 @@ def scrape_blog_metrics(blog_url):
 
 
 @app.route('/api/blog-submissions/statistics')
-@login_required
-@permission_required('blog_submissions_list')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submissions_statistics():
     """Get blog submission statistics per workshop"""
     try:
@@ -1564,8 +1528,7 @@ def blog_submissions_statistics():
 
 
 @app.route('/blog-submissions')
-@login_required
-@permission_required('blog_submissions_list')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submissions_list():
     """List all blog submissions"""
     try:
@@ -1577,16 +1540,14 @@ def blog_submissions_list():
 
 
 @app.route('/hands-on-lab-completion')
-@login_required
-@permission_required('import_advanced')
+@jarvis_auth_required(page='hands-on-lab-completion')
 def hands_on_lab_completion_list():
     """List all hands-on lab completion proofs with workshop tabs"""
     return render_template('hands_on_lab_completion_list.html')
 
 
 @app.route('/api/hands-on-lab-completion/<workshop_name>')
-@login_required
-@permission_required('import_advanced')
+@jarvis_auth_required(page='hands-on-lab-completion')
 def get_hands_on_lab_completion(workshop_name):
     """Get hands-on lab completion data for a specific workshop"""
     try:
@@ -1610,8 +1571,7 @@ def get_hands_on_lab_completion(workshop_name):
 
 
 @app.route('/blog-submissions/create', methods=['GET', 'POST'])
-@login_required
-@permission_required('blog_submission_create')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submission_create():
     """Create blog submission"""
     if request.method == 'POST':
@@ -1710,8 +1670,7 @@ def validate_single_submission(submission):
 
 
 @app.route('/blog-submissions/validate', methods=['POST'])
-@login_required
-@permission_required('blog_submission_create')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submissions_validate():
     """Validate blog submissions with parallel processing - re-verifies ALL submissions to update likes/comments"""
     try:
@@ -1769,8 +1728,7 @@ def blog_submissions_validate():
 
 
 @app.route('/api/blog-submissions/validate-stream')
-@login_required
-@permission_required('blog_submission_create')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submissions_validate_stream():
     """Stream validation progress with parallel processing - re-verifies ALL submissions to update likes/comments"""
     def generate():
@@ -1852,8 +1810,7 @@ def blog_submissions_validate_stream():
 
 
 @app.route('/api/blog-submissions/validate-stream/<workshop_name>')
-@login_required
-@permission_required('blog_submission_create')
+@jarvis_auth_required(page='blog-submissions')
 def blog_submissions_validate_stream_by_workshop(workshop_name):
     """Stream validation progress for a specific workshop - re-verifies ALL submissions for that workshop"""
     def generate():
@@ -1944,8 +1901,7 @@ def blog_submissions_validate_stream_by_workshop(workshop_name):
 # ============================================
 
 @app.route('/kiro-submissions')
-@login_required
-@permission_required('kiro_submissions_list')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_list():
     """List all Kiro submissions grouped by week"""
     try:
@@ -1965,8 +1921,7 @@ def kiro_submissions_list():
 
 
 @app.route('/kiro-submissions/week/<int:week_number>')
-@login_required
-@permission_required('kiro_submissions_list')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_week(week_number):
     """View submissions for a specific week"""
     try:
@@ -1980,8 +1935,7 @@ def kiro_submissions_week(week_number):
 
 
 @app.route('/kiro-submissions/create', methods=['GET', 'POST'])
-@login_required
-@permission_required('kiro_submission_create')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submission_create():
     """Create or edit Kiro submission"""
     week_number = request.args.get('week_number', type=int)
@@ -2021,8 +1975,7 @@ def kiro_submission_create():
 
 
 @app.route('/kiro-submissions/edit/<int:week_number>/<email>')
-@login_required
-@permission_required('kiro_submission_create')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submission_edit(week_number, email):
     """Edit Kiro submission"""
     try:
@@ -2044,8 +1997,7 @@ def kiro_submission_edit(week_number, email):
 
 
 @app.route('/kiro-submissions/delete/<int:week_number>/<email>', methods=['POST'])
-@login_required
-@permission_required('kiro_submission_create')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submission_delete(week_number, email):
     """Delete Kiro submission"""
     try:
@@ -2460,8 +2412,7 @@ def validate_single_kiro_submission(submission):
 
 
 @app.route('/api/kiro-submissions/statistics/<int:week_number>')
-@login_required
-@permission_required('kiro_submissions_list')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_statistics(week_number):
     """Get Kiro submission statistics for a specific week"""
     try:
@@ -2509,8 +2460,7 @@ def kiro_submissions_statistics(week_number):
 
 
 @app.route('/api/kiro-submissions/top-participants/<int:week_number>')
-@login_required
-@permission_required('kiro_submissions_list')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_top_participants(week_number):
     """Download top participants as CSV for a specific week"""
     try:
@@ -2630,8 +2580,7 @@ def kiro_submissions_top_participants(week_number):
 
 
 @app.route('/api/dashboard/kiro-stats')
-@login_required
-@permission_required('index')
+@jarvis_auth_required(page='dashboard')
 def get_kiro_dashboard_stats():
     """Get overall Kiro challenge statistics for dashboard"""
     try:
@@ -2697,8 +2646,7 @@ def get_kiro_dashboard_stats():
 
 
 @app.route('/api/kiro-submissions/validate-stream')
-@login_required
-@permission_required('kiro_submission_create')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_validate_stream():
     """Stream validation progress for kiro blog submissions"""
     def generate():
@@ -2790,8 +2738,7 @@ def kiro_submissions_validate_stream():
 
 
 @app.route('/api/kiro-submissions/validate-github-stream')
-@login_required
-@permission_required('kiro_submission_create')
+@jarvis_auth_required(page='kiro-submissions')
 def kiro_submissions_validate_github_stream():
     """Stream validation progress for kiro GitHub submissions
     Uses fewer workers and adds delays to respect GitHub API rate limits
@@ -2921,8 +2868,7 @@ def kiro_submissions_validate_github_stream():
 # Routes - Master Logs
 # ============================================
 @app.route('/logs')
-@login_required
-@permission_required('logs_list')
+@jarvis_auth_required(page='logs')
 def logs_list():
     """View master logs"""
     try:
@@ -2945,6 +2891,7 @@ def logs_list():
 
 
 @app.route('/api/logs')
+@jarvis_auth_required(page='logs')
 def api_logs():
     """API endpoint for logs (JSON)"""
     try:
@@ -2978,24 +2925,21 @@ def allowed_file(filename):
 
 
 @app.route('/import')
-@login_required
-@permission_required('import_page')
+@jarvis_auth_required(page='import')
 def import_page():
     """Import page - show options"""
     return render_template('import_index.html')
 
 
 @app.route('/import/master')
-@login_required
-@permission_required('import_master_page')
+@jarvis_auth_required(page='import')
 def import_master_page():
     """Master workbook import page (12 sheets)"""
     return render_template('import_master.html')
 
 
 @app.route('/import/advanced')
-@login_required
-@permission_required('import_advanced_page')
+@jarvis_auth_required(page='import')
 def import_advanced_page():
     """Advanced import page with column mapping"""
     # Check if table is specified in query parameter (for User PII Import)
@@ -3004,12 +2948,14 @@ def import_advanced_page():
 
 
 @app.route('/import/simple')
+@jarvis_auth_required(page='import')
 def import_simple_page():
     """Simple import page (original)"""
     return render_template('import.html')
 
 
 @app.route('/api/import/workshops', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_workshops():
     """Import master workshops XLSX file"""
     try:
@@ -3092,6 +3038,7 @@ def import_workshops():
 
 
 @app.route('/api/import/user-pii', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_user_pii():
     """Import User PII XLSX file"""
     try:
@@ -3148,6 +3095,7 @@ def import_user_pii():
 
 
 @app.route('/api/import/master-preview', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_master_preview():
     """Preview master workbook with 12 sheets"""
     try:
@@ -3218,6 +3166,7 @@ def import_master_preview():
 
 
 @app.route('/api/import/preview', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_preview():
     """Preview file columns and first few rows"""
     try:
@@ -3309,6 +3258,7 @@ def import_preview():
 
 
 @app.route('/api/import/advanced', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_advanced():
     """Advanced import with column mapping"""
     try:
@@ -3543,6 +3493,7 @@ def import_advanced():
 
 
 @app.route('/api/import/master', methods=['POST'])
+@jarvis_auth_required(page='import')
 def import_master():
     """Import master workbook with workshop selection"""
     try:
@@ -3820,24 +3771,21 @@ def internal_error(error):
 # ============================================
 
 @app.route('/import/kiro')
-@login_required
-@permission_required('import_kiro_page')
+@jarvis_auth_required(page='import')
 def import_kiro_page():
     """Kiro data import page"""
     return render_template('import_kiro.html')
 
 
 @app.route('/import/hands-on-lab')
-@login_required
-@permission_required('import_advanced')
+@jarvis_auth_required(page='hands-on-lab-completion')
 def import_hands_on_lab():
     """Hands-on Lab Completion Import page"""
     return render_template('import_hands_on_lab.html')
 
 
 @app.route('/api/import/kiro/detect-sheets', methods=['POST'])
-@login_required
-@permission_required('import_kiro_page')
+@jarvis_auth_required(page='import')
 def import_kiro_detect_sheets():
     """Detect Kiro Week sheets in uploaded file"""
     try:
@@ -3897,8 +3845,7 @@ def import_kiro_detect_sheets():
 
 
 @app.route('/api/import/kiro/preview', methods=['POST'])
-@login_required
-@permission_required('import_kiro_page')
+@jarvis_auth_required(page='import')
 def import_kiro_preview():
     """Preview Kiro import data with column mapping"""
     try:
@@ -3962,8 +3909,7 @@ def import_kiro_preview():
 
 
 @app.route('/api/import/kiro/process', methods=['POST'])
-@login_required
-@permission_required('import_kiro_page')
+@jarvis_auth_required(page='import')
 def import_kiro_process():
     """Process Kiro import with mapping"""
     try:
@@ -4128,8 +4074,7 @@ def import_kiro_process():
 
 
 @app.route('/api/import/hands-on-lab', methods=['POST'])
-@login_required
-@permission_required('import_advanced')
+@jarvis_auth_required(page='hands-on-lab-completion')
 def import_hands_on_lab_process():
     """Process Hands-on Lab Completion import"""
     try:
@@ -4296,6 +4241,7 @@ def import_hands_on_lab_process():
 # Routes - Google Sheets Export
 # ============================================
 @app.route('/api/export-to-sheet', methods=['POST'])
+@jarvis_auth_required(page='workshops')
 def export_to_sheet():
     """
     Export workshop, time slot, and occupation data to Google Sheet
@@ -4465,8 +4411,7 @@ def export_to_sheet():
 # ============================================
 
 @app.route('/admin/users')
-@login_required
-@admin_required
+@jarvis_auth_required(page='admin-users')
 def admin_users_list():
     """List all RBAC users"""
     try:
@@ -4505,8 +4450,7 @@ def admin_users_list():
         return render_template('admin_users_list.html', users=[])
 
 @app.route('/admin/users/create', methods=['GET', 'POST'])
-@login_required
-@admin_required
+@jarvis_auth_required(page='admin-users')
 def admin_user_create():
     """Create new RBAC user"""
     if request.method == 'POST':
@@ -4538,8 +4482,7 @@ def admin_user_create():
     return render_template('admin_user_form.html', user=None)
 
 @app.route('/admin/users/<int:user_id>/edit', methods=['GET', 'POST'])
-@login_required
-@admin_required
+@jarvis_auth_required(page='admin-users')
 def admin_user_edit(user_id):
     """Edit RBAC user"""
     user = RBACUser.get_by_id(user_id)
@@ -4586,14 +4529,17 @@ def admin_user_edit(user_id):
     return render_template('admin_user_form.html', user=user)
 
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
-@login_required
-@admin_required
+@jarvis_auth_required(page='admin-users')
 def admin_user_delete(user_id):
     """Delete RBAC user"""
-    if user_id == session.get('user_id'):
-        flash('You cannot delete your own account', 'error')
-        return redirect(url_for('admin_users_list'))
-    
+    target = RBACUser.get_by_id(user_id)
+    if target and getattr(g, "user", None):
+        je = (g.user.get("email") or "").strip().lower()
+        te = (target.get("email") or "").strip().lower()
+        if je and te and je == te:
+            flash("You cannot delete the RBAC account that matches your Jarvis email.", "error")
+            return redirect(url_for("admin_users_list"))
+
     try:
         RBACUser.delete(user_id)
         flash('User deleted successfully!', 'success')
@@ -4603,8 +4549,7 @@ def admin_user_delete(user_id):
     return redirect(url_for('admin_users_list'))
 
 @app.route('/admin/users/<int:user_id>/permissions', methods=['GET', 'POST'])
-@login_required
-@admin_required
+@jarvis_auth_required(page='admin-users')
 def admin_user_permissions(user_id):
     """Manage permissions for a user"""
     user = RBACUser.get_by_id(user_id)
@@ -4615,7 +4560,7 @@ def admin_user_permissions(user_id):
     if request.method == 'POST':
         try:
             permission_ids = [int(pid) for pid in request.form.getlist('permissions')]
-            RBACUserPermission.set_user_permissions(user_id, permission_ids, session.get('user_id'))
+            RBACUserPermission.set_user_permissions(user_id, permission_ids, None)
             flash('Permissions updated successfully!', 'success')
             return redirect(url_for('admin_user_permissions', user_id=user_id))
         except Exception as e:
